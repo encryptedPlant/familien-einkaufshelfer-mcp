@@ -1,0 +1,5 @@
+# Generated lock file
+package-lock.json
+
+# Prose documents are not reformatted (SPEC R8 covers code)
+*.md
