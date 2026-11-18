@@ -12,12 +12,12 @@ For new products, the AI client also uses **dm's public MCP server** to search t
 
 ## Status
 
-Project scaffold, the phase 1 core logic as pure, unit-tested functions (validation, normalisation, product identity, matching; merging, rejection of faulty requests, payload hash, replay decision) , the JSON file storage with cross-process locking, and a first MCP server (stdio) with `resolve_items`, `add_to_shopping_list` and `get_shopping_list`. The server is tested automatically through the MCP SDK client; **a run in Claude Code is still open** (see *Use it with Claude Code*). Not there yet: `get_favorites`, `save_favorite`, the dm connection and the shopping UI.
+Phase 1 (SPEC §2) is implemented and tested automatically: the core logic as pure, unit-tested functions (validation, normalisation, product identity, matching; merging, rejection of faulty requests, payload hash, replay decision), the JSON file storage with cross-process locking, and an MCP server (stdio) with `resolve_items`, `add_to_shopping_list` and `get_shopping_list`, tested through the MCP SDK client. A manual run in Claude Code (two sessions, demo store) passed all five checks ([docs/manual-check.md](docs/manual-check.md)). Planned, not implemented: favourite management (`get_favorites`, `save_favorite`), the dm connection and the shopping UI.
 
 Done and verified:
 
 - [x] Tooling installed and configured: TypeScript (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), Zod, Prettier, Vitest, MCP TypeScript SDK. `npm run typecheck` and `npm run format:check` pass.
-- [x] Next.js placeholder start page. The Playwright smoke test (`npm run test:e2e`, Chromium) passes.
+- [x] Next.js placeholder start page. The Playwright smoke test (`npm run test:e2e`, Chromium) only checks that this start page renders; there is no shopping UI and no E2E test for one yet.
 - [x] Stop hook script checked by calling it directly: exit 0 when green; exit 2 with a readable report for a failing Vitest test, a type error and missing tools; the loop guard releases after 3 blocked stops and reports that explicitly.
 - [x] Stop hook verified in a real Claude Code turn: a deliberately failing Vitest test blocked the end of the turn and the failure report reached Claude; after removing the test the next stop was not blocked (see *Agentic workflow*).
 - [x] Core part (a) in `src/core/` (pure, no I/O), covered by 110 Vitest unit tests in `tests/core/`:
@@ -54,7 +54,7 @@ Done and verified:
 
   The new tests failed before the implementation because of missing behaviour (empty tool list or "not implemented"); server start, connection and shutdown already worked, so one protocol test passed early. 7 deliberately broken variants (e.g. error without `isError`, diagnostics on stdout, request applied twice, wrong annotation) each made the corresponding tests fail.
 
-Covered through the MCP tools, automated (not yet in a Claude Code run):
+Covered through the MCP tools, automated (the manual Claude Code run additionally covered resolve, add, technical retry, new request, an ambiguous term and persistence across sessions):
 
 - `resolve_items`: AC-R1, AC-R3, AC-R5, AC-R6, AC-R7 via MCP; AC-R2 and AC-R4 on the core functions.
 - `add_to_shopping_list`: AC-A1, AC-A2, AC-A8, AC-A9, AC-A10, AC-A12, AC-A15 via MCP; the others on the core functions and the JSON store (AC-A14 storage tests).
@@ -67,15 +67,14 @@ Known `npm audit` findings (accepted for now):
 - `npm audit fix` would downgrade Vitest to 3.1.4 (semver-major, older line), so it was not applied. Re-check when Vitest or picomatch publish a fix.
 - Unchanged after adding `proper-lockfile` and `tsx`. Note: `proper-lockfile` 4.1.2 has had no release since 2022; npm also reports that the `postinstall` script of `esbuild` (used by `tsx`) is not approved – `tsx` works without it.
 
+- [x] Vertical slice, automated: resolve, add and list through the real MCP server process (tests above).
+- [x] Manual run in Claude Code on 2026-11-18 (two sessions, demo store): resolve and add, technical retry with `replayed: true`, new request with a new requestId, ambiguous term with a follow-up question and nothing added, list kept across sessions – all passed; deviations from the planned order are documented in [docs/manual-check.md](docs/manual-check.md).
+
 Open:
 
-- [ ] Vertical slice: resolve favourite → add to list → show list → tests pass
-- [ ] Manual run of `resolve_items`, `add_to_shopping_list` and `get_shopping_list` in Claude Code (steps below)
-- [ ] MCP tools `get_favorites` and `save_favorite` (phase 2)
-- [ ] Next.js UI: favourites, shopping list, mark as bought / remove – using the shared store (A8)
-- [ ] Playwright E2E tests for the UI beyond the smoke test
-- [ ] `.mcp.json` with this server and dm's MCP server
-- [ ] Manual end-to-end run with dm's MCP server documented
+- [ ] Planned: favourite management, MCP tools `get_favorites` and `save_favorite` (phase 2)
+- [ ] Planned: dm connection – `.mcp.json` with dm's MCP server and a documented manual end-to-end run (phase 2)
+- [ ] Planned: shopping UI (Next.js) – favourites, shopping list, mark as bought / remove, using the shared store (A8), with Playwright E2E tests (phase 3)
 - [ ] ESLint and CI (deliberately postponed)
 
 ## How it works
@@ -156,6 +155,7 @@ tests/                   # Vitest tests, *.test.ts
   mcp/                   #   MCP integration tests (real server process via the SDK client)
   fixtures/              #   fixed, fictional sample data
 e2e/                     # Playwright tests, *.spec.ts – smoke test
+docs/manual-check.md     # manual Claude Code check: steps and observed results
 SPEC.md                  # requirements and acceptance criteria
 CLAUDE.md                # project context and development rules for Claude Code
 .claude/settings.json    # Claude Code settings: Stop hook
@@ -195,17 +195,7 @@ The project's `.mcp.json` starts the server with `node "${CLAUDE_PROJECT_DIR:-.}
 2. Start a **new** Claude Code session in the project folder (a running session does not pick up a newly added `.mcp.json`). Claude Code asks once whether to use the project server `einkaufshelfer`; approve it. `node` must be on the PATH of Claude Code.
 3. Check the connection with `/mcp` in the session (or `claude mcp list` / `claude mcp get einkaufshelfer` in a terminal): `einkaufshelfer` should be connected with three tools. The server writes its store path to stderr.
 
-**Manual check (open, not yet run):**
-
-| Step | Ask Claude | Expected |
-|---|---|---|
-| 1 | "Wir brauchen zwei Packungen der üblichen Feuchttücher." | `resolve_items` → `resolved` (Feuchttücher sensitiv); `add_to_shopping_list` with a new requestId, quantity 2 |
-| 2 | "Wiederhole genau diesen Aufruf technisch mit derselben requestId." | `replayed: true`, list still shows 2 |
-| 3 | "Wir brauchen noch einmal zwei Packungen der üblichen Feuchttücher." | new requestId, entry merged, quantity 4 |
-| 4 | "Bitte etwas Zahnpflege auf die Liste." | `resolve_items` → `ambiguous` (Zahnpasta Minze / Kräuter); Claude asks back; `get_shopping_list` shows nothing new until you choose |
-| 5 | "Was steht auf der Einkaufsliste?" | `get_shopping_list` with the open entries |
-
-Reset the demo by deleting `data/demo-store.json` and seeding again. Automated SDK tests do not replace this run.
+**Manual check: performed on 2026-11-18, all five checks passed.** Requests, observed results and deviations are in [docs/manual-check.md](docs/manual-check.md). Reset the demo by deleting `data/demo-store.json` and seeding again. Automated SDK tests do not replace this run.
 
 ## Tests
 
@@ -223,19 +213,19 @@ Automated tests use fixed, fictional sample data and never call dm's live server
 
 | Test case | Expected behaviour | Status |
 |---|---|---|
-| "Two packs of the usual wet wipes" | Resolved favourite, quantity 2 | core and MCP tests (AC-R1, AC-A1); Claude Code run open |
+| "Two packs of the usual wet wipes" | Resolved favourite, quantity 2 | core and MCP tests (AC-R1, AC-A1); manual Claude Code run |
 | "The usual toothpaste" | Resolved favourite | same alias rule as AC-R1, no separate test |
 | "Toothpaste" with two matching favourites | `ambiguous` with both candidates | core unit test (AC-R3) |
 | Unknown product | `unknown` | core unit test (AC-R5) |
 | Item already on the list, new request | Quantity merged | core unit test (AC-A2) |
 | Same request retried (same `requestId`) | List unchanged | core unit test (AC-A8); replay in a new process (AC-ST2) |
 | Storage unavailable / write fails | Clear error, no success message | storage tests (AC-A14, AC-ST6, AC-ST7); corrupt store through MCP (AC-A15, AC-L4) |
-| UI: add and display | Items appear with correct quantities | planned |
+| UI: add and display | Items appear with correct quantities | planned (no shopping UI yet; the Playwright smoke test only covers the placeholder start page) |
 | UI: mark as bought | Item disappears from the open list | planned |
 
-### Manual check (planned, not yet run)
+### Manual end-to-end check with dm and UI (planned, not yet run)
 
-Planned once dm's MCP server and the UI are connected: a documented example run in Claude Code with both servers: request → dm search → selection → item on the list → visible in the UI. Neither dm nor the UI is integrated yet, and this run has not been done. The open manual check of the three current tools is described under *Use it with Claude Code*.
+Planned once dm's MCP server and the UI are connected: a documented example run in Claude Code with both servers: request → dm search → selection → item on the list → visible in the UI. Neither dm nor the UI is integrated yet, and this run has not been done. The manual check of the three current tools is documented in [docs/manual-check.md](docs/manual-check.md).
 
 ## Agentic workflow
 
