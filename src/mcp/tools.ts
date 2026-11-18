@@ -125,7 +125,9 @@ export async function callTool(
   args: unknown,
   deps: ToolDeps,
 ): Promise<CallToolResult> {
-  const handler = HANDLERS[name];
+  // Own properties only: names such as "constructor" or "toString" must not
+  // reach Object.prototype methods.
+  const handler = Object.hasOwn(HANDLERS, name) ? HANDLERS[name] : undefined;
   if (handler === undefined) {
     throw new McpError(ErrorCode.InvalidParams, `Unknown tool: ${name}`);
   }

@@ -31,6 +31,23 @@ function message(result: { structuredContent?: unknown }): string {
   return String((result.structuredContent as { message?: string }).message);
 }
 
+describe("callTool dispatch", () => {
+  test.each(["constructor", "toString", "hasOwnProperty", "__proto__", "nope"])(
+    "the unknown tool name %s is rejected as an unknown tool and never runs anything",
+    async (name) => {
+      const logs: string[] = [];
+      const call = callTool(
+        name,
+        { ok: true, value: { echoed: true } },
+        deps({ read: throwing, update: throwing }, logs),
+      );
+      await expect(call).rejects.toBeInstanceOf(McpError);
+      await expect(call).rejects.toThrow(`Unknown tool: ${name}`);
+      expect(logs).toEqual([]);
+    },
+  );
+});
+
 describe("callTool error handling", () => {
   test("add_to_shopping_list: an unexpected exception becomes INTERNAL_ERROR and suggests retrying with the same requestId and items", async () => {
     const logs: string[] = [];

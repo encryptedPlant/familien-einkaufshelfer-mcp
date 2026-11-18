@@ -5,6 +5,10 @@
 // store file (retried on EPERM/EBUSY; the lock state is checked before every
 // attempt) → release the lock. The existing store file is never deleted; it
 // is only replaced by the rename.
+//
+// Errors returned to the client name no file system paths and no OS error
+// text (both may contain the user name or store content); the full detail
+// goes to the log (stderr).
 
 import { randomUUID } from "node:crypto";
 import * as nodeFs from "node:fs/promises";
@@ -131,11 +135,7 @@ export function createJsonFileStore(
       try {
         await s.fs.mkdir(dir, { recursive: true });
       } catch (error) {
-        return unavailable(
-          `cannot create the store directory ${dir}`,
-          path,
-          error,
-        );
+        return unavailable(s, "cannot create the store directory", dir, error);
       }
 
       const locked = await lockWithTimeout(path, s);
@@ -152,12 +152,13 @@ export function createJsonFileStore(
 
         const valid = validateStoreFile(decision.next);
         if (!valid.ok) {
-          return failure({
-            ...valid.error,
-            message: `refusing to write invalid store content: ${valid.error.message}`,
-          });
+          return corrupt(
+            s,
+            "refusing to write invalid store content",
+            `for ${path}: ${detailOf(valid.error)}`,
+          );
         }
-        if (held.isCompromised()) return lockLost(path);
+        if (held.isCompromised()) return lockLost();
 
         const written = await writeAtomically(
           path,
@@ -225,13 +226,14 @@ async function lockWithTimeout(
       return { ok: true, value: { release, isCompromised: () => compromised } };
     } catch (error) {
       if (errorCode(error) !== "ELOCKED") {
-        return unavailable(`cannot lock the store ${path}`, path, error);
+        return unavailable(s, "cannot lock the store", path, error);
       }
       const remaining = deadline - Date.now();
       if (remaining <= 0) {
         return unavailable(
-          `timed out after ${s.lockTimeoutMs} ms waiting for the store lock ${path}.lock`,
-          path,
+          s,
+          `timed out after ${s.lockTimeoutMs} ms waiting for the store lock`,
+          `${path}.lock`,
           error,
         );
       }
@@ -249,27 +251,27 @@ async function readState(
     text = await s.fs.readFile(path, "utf8");
   } catch (error) {
     if (errorCode(error) === "ENOENT") return { ok: true, value: emptyStore() };
-    return unavailable(`cannot read the store ${path}`, path, error);
+    return unavailable(s, "cannot read the store", path, error);
   }
 
   let data: unknown;
   try {
     data = JSON.parse(text);
   } catch (error) {
-    return failure({
-      code: "STORAGE_CORRUPT",
-      message: `the store ${path} is not valid JSON: ${describe(error)}`,
-      details: { path },
-    });
+    return corrupt(
+      s,
+      "the store is not valid JSON",
+      `${path}: ${describe(error)}`,
+    );
   }
 
   const valid = validateStoreFile(data);
   if (!valid.ok) {
-    return failure({
-      ...valid.error,
-      message: `the store ${path} is invalid: ${valid.error.message}`,
-      details: { ...valid.error.details, path },
-    });
+    return corrupt(
+      s,
+      "the store content is invalid",
+      `${path}: ${detailOf(valid.error)}`,
+    );
   }
   return valid;
 }
@@ -298,7 +300,7 @@ async function writeAtomically(
     });
   } catch (error) {
     await removeTempFile(temp, s);
-    return unavailable(`cannot write the temp file ${temp}`, path, error);
+    return unavailable(s, "cannot write the temp file", temp, error);
   }
 
   const started = Date.now();
@@ -306,7 +308,7 @@ async function writeAtomically(
     if (isLockLost()) {
       // Store file and the (possibly foreign) lock stay untouched.
       await removeTempFile(temp, s);
-      return lockLost(path);
+      return lockLost();
     }
     try {
       await s.fs.rename(temp, path);
@@ -322,7 +324,7 @@ async function writeAtomically(
       }
       // The store file is untouched; only the temp file has to go.
       await removeTempFile(temp, s);
-      return unavailable(`cannot replace the store ${path}`, path, error);
+      return unavailable(s, "cannot replace the store", path, error);
     }
   }
 }
@@ -342,24 +344,54 @@ function serialize(store: StoreFile): string {
   return `${JSON.stringify(store, null, 2)}\n`;
 }
 
-function lockLost(path: string): Result<never> {
+const SEE_LOG = "details are in the server log";
+
+/**
+ * STORAGE_CORRUPT with a generic message and no details: parser and schema
+ * messages may quote store content (names, aliases, values). The full
+ * detail goes to the log only.
+ */
+function corrupt(s: Settings, what: string, logDetail: string): Result<never> {
+  s.log(`${what} ${logDetail}`);
+  return failure({ code: "STORAGE_CORRUPT", message: `${what}; ${SEE_LOG}` });
+}
+
+/** Full schema error for the log: message plus all issues. */
+function detailOf(error: CoreError): string {
+  return error.details === undefined
+    ? error.message
+    : `${error.message} ${JSON.stringify(error.details)}`;
+}
+
+function lockLost(): Result<never> {
+  // The compromise itself is logged with the lock path by onCompromised.
   return failure({
     code: "STORAGE_UNAVAILABLE",
-    message: `the store lock ${path}.lock was lost before the store could be replaced; nothing was written`,
-    details: { path, cause: "ECOMPROMISED" },
+    message: `the store lock was lost before the store could be replaced; nothing was written; ${SEE_LOG}`,
+    details: { cause: "ECOMPROMISED" },
   });
 }
 
+/**
+ * STORAGE_UNAVAILABLE: logs `action`, the affected path and the OS error;
+ * the client only gets `action` and the error code (e.g. EACCES).
+ */
 function unavailable(
-  message: string,
-  path: string,
+  s: Settings,
+  action: string,
+  target: string,
   error?: unknown,
 ): Result<never> {
   const cause = errorCode(error);
+  s.log(
+    error === undefined
+      ? `${action} ${target}`
+      : `${action} ${target}: ${describe(error)}`,
+  );
   return failure({
     code: "STORAGE_UNAVAILABLE",
-    message: error === undefined ? message : `${message}: ${describe(error)}`,
-    details: { path, ...(cause !== undefined ? { cause } : {}) },
+    message: `${action}${cause !== undefined ? ` (${cause})` : ""}; ${SEE_LOG}`,
+    ...(cause !== undefined ? { details: { cause } } : {}),
   });
 }
 

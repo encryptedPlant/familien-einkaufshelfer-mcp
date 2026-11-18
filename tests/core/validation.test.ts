@@ -267,6 +267,47 @@ describe("validateAddToShoppingListInput (SPEC §6.2)", () => {
     ).toBe(true);
   });
 
+  test("accepts a favoriteId of 128 characters and rejects 129", () => {
+    const item = (length: number) => ({
+      favoriteId: "f".repeat(length),
+      quantity: 1,
+    });
+    expect(
+      validateAddToShoppingListInput({ requestId: "req-1", items: [item(128)] })
+        .ok,
+    ).toBe(true);
+    expectValidationError(
+      validateAddToShoppingListInput({
+        requestId: "req-1",
+        items: [item(129)],
+      }),
+    );
+  });
+
+  test("accepts a dm URL of 2048 characters and rejects 2049", () => {
+    const url = (length: number) => {
+      const prefix = "https://www.dm.de/p";
+      return prefix + "a".repeat(length - prefix.length);
+    };
+    const item = (dmUrl: string) => ({
+      product: { name: "Zahnseide mint", dmUrl },
+      quantity: 1,
+    });
+    expect(url(2048)).toHaveLength(2048);
+    expect(
+      validateAddToShoppingListInput({
+        requestId: "req-1",
+        items: [item(url(2048))],
+      }).ok,
+    ).toBe(true);
+    expectValidationError(
+      validateAddToShoppingListInput({
+        requestId: "req-1",
+        items: [item(url(2049))],
+      }),
+    );
+  });
+
   test.each([
     ["missing", { favoriteId: favoriteItem.favoriteId }],
     ["0", { ...favoriteItem, quantity: 0 }],

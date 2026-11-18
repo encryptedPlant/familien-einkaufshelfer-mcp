@@ -167,6 +167,136 @@ describe("read() (SPEC §4.6)", () => {
       error: { code: "STORAGE_UNAVAILABLE", details: { cause: "EACCES" } },
     });
   });
+
+  test.each([
+    [
+      "unreadable store",
+      "STORAGE_UNAVAILABLE",
+      () => recordingFs({ readFile: () => Promise.reject(errno("EACCES")) }).fs,
+      "{}",
+    ],
+    ["invalid JSON", "STORAGE_CORRUPT", () => undefined, '"Geheimprodukt'],
+    [
+      "schema violation",
+      "STORAGE_CORRUPT",
+      () => undefined,
+      JSON.stringify({ ...validStore(), list: [{ id: 1 }] }),
+    ],
+  ])(
+    "%s: the client error names neither the store path nor OS or parser text; the log has the detail",
+    async (_label, code, makeFs, content) => {
+      await writeStoreFile(content);
+      const fs = makeFs();
+      const store = createJsonFileStore(
+        storePath,
+        options(fs !== undefined ? { fs } : {}),
+      );
+      const result = await store.read();
+      expect(result).toMatchObject({ ok: false, error: { code } });
+      const visible = JSON.stringify(result);
+      expect(visible).not.toContain(dir);
+      expect(visible).not.toContain(JSON.stringify(dir).slice(1, -1));
+      expect(visible).not.toContain("simulated");
+      expect(visible).not.toContain("Geheimprodukt");
+      expect(logs.some((m) => m.includes(storePath))).toBe(true);
+    },
+  );
+});
+
+describe("STORAGE_CORRUPT never returns store content to the client", () => {
+  const MARKER = "VERTRAULICH-7f3a9c";
+
+  /** A valid store with `edit` applied (JSON-like, untyped). */
+  function variant(edit: (store: any) => void): string {
+    const copy = structuredClone(validStore()) as any;
+    edit(copy);
+    return JSON.stringify(copy, null, 2);
+  }
+
+  function expectNoMarker(result: unknown): void {
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "STORAGE_CORRUPT" },
+    });
+    const { error } = result as {
+      error: { message: string; details?: unknown };
+    };
+    // Case-insensitive: schema messages may quote normalised (lower-case) values.
+    const marker = MARKER.toLowerCase();
+    expect(error.message.toLowerCase()).not.toContain(marker);
+    expect(JSON.stringify(error.details ?? null).toLowerCase()).not.toContain(
+      marker,
+    );
+    expect(error).not.toHaveProperty("details");
+  }
+
+  const corruptContents: [string, string][] = [
+    ["invalid JSON with the marker", `{ "favorites": [{ "name": "${MARKER}" `],
+    ["a bare string with the marker", `"${MARKER}`],
+    [
+      "an unknown version holding the marker",
+      variant((s) => (s.version = MARKER)),
+    ],
+    [
+      "the marker as a duplicate alias",
+      variant((s) => {
+        s.favorites[0].aliases = [MARKER];
+        s.favorites[1].aliases = [MARKER];
+      }),
+    ],
+    [
+      "the marker in an untrimmed name",
+      variant((s) => (s.favorites[0].name = ` ${MARKER}`)),
+    ],
+    ["the marker as an unknown key", variant((s) => (s[MARKER] = MARKER))],
+  ];
+
+  test.each(corruptContents)(
+    "read(): %s gives a generic STORAGE_CORRUPT without the marker; the file is unchanged and the log has the detail",
+    async (_label, content) => {
+      const before = await writeStoreFile(content);
+      const result = await createJsonFileStore(storePath, options()).read();
+      expectNoMarker(result);
+      expect(await readFile(storePath)).toEqual(before);
+      expect(logs.some((m) => m.includes(storePath))).toBe(true);
+    },
+  );
+
+  test.each(corruptContents)(
+    "update(): %s gives a generic STORAGE_CORRUPT without the marker; fn is not called and the file is unchanged",
+    async (_label, content) => {
+      const before = await writeStoreFile(content);
+      let called = false;
+      const result = await createJsonFileStore(storePath, options()).update(
+        (current) => ((called = true), addEntry(current)),
+      );
+      expectNoMarker(result);
+      expect(called).toBe(false);
+      expect(await readFile(storePath)).toEqual(before);
+    },
+  );
+
+  test("update(): an invalid new state holding the marker is refused with a generic STORAGE_CORRUPT; the file is unchanged and the log has the detail", async () => {
+    const before = await writeStoreFile(validStore());
+    const result = await createJsonFileStore(storePath, options()).update(
+      (current) => ({
+        ok: true,
+        value: undefined,
+        next: {
+          ...current,
+          favorites: current.favorites.map((f, i) =>
+            i < 2 ? { ...f, aliases: [MARKER] } : f,
+          ),
+        },
+      }),
+    );
+    expectNoMarker(result);
+    expect(await readFile(storePath)).toEqual(before);
+    expect(await leftoverTempFiles()).toEqual([]);
+    expect(
+      logs.some((m) => m.toLowerCase().includes(MARKER.toLowerCase())),
+    ).toBe(true);
+  });
 });
 
 describe("update() (SPEC §4.6)", () => {
