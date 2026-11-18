@@ -7,6 +7,10 @@
       "env": {
         "EINKAUFSHELFER_DATA_FILE": "data/demo-store.json"
       }
+    },
+    "dm-drogeriemarkt": {
+      "type": "http",
+      "url": "https://mcp.dm.de/mcp"
     }
   }
 }

@@ -12,7 +12,9 @@ For new products, the AI client also uses **dm's public MCP server** to search t
 
 ## Status
 
-Phase 1 (SPEC §2) is implemented and tested automatically: the core logic as pure, unit-tested functions (validation, normalisation, product identity, matching; merging, rejection of faulty requests, payload hash, replay decision), the JSON file storage with cross-process locking, and an MCP server (stdio) with `resolve_items`, `add_to_shopping_list` and `get_shopping_list`, tested through the MCP SDK client. A manual run in Claude Code (two sessions, demo store) passed all five checks ([docs/manual-check.md](docs/manual-check.md)). Planned, not implemented: favourite management (`get_favorites`, `save_favorite`), the dm connection and the shopping UI.
+Phase 1 (SPEC §2) is implemented and tested automatically: the core logic as pure, unit-tested functions (validation, normalisation, product identity, matching; merging, rejection of faulty requests, payload hash, replay decision), the JSON file storage with cross-process locking, and an MCP server (stdio) with `resolve_items`, `add_to_shopping_list` and `get_shopping_list`, tested through the MCP SDK client. A manual run in Claude Code (two sessions, demo store) passed all five checks ([docs/manual-check.md](docs/manual-check.md)).
+
+Phase 2, in progress on `feat/favorites-dm`: `get_favorites` and `save_favorite` are implemented and tested automatically, and dm's public MCP server is configured in `.mcp.json`. A live run in Claude Code with both servers (two sessions, demo store) passed: dm search, saving a favourite after explicit confirmation, duplicate alias, resolve and add, persistence across sessions ([docs/manual-check.md](docs/manual-check.md#phase-2-run)). Still open: a private local store with three personal favourites. Planned, not implemented: the shopping UI (phase 3).
 
 Done and verified:
 
@@ -53,12 +55,20 @@ Done and verified:
   - integration tests start the real server as a separate process through the SDK client (`StdioClientTransport`), each with its own temp store, also from another working directory and with the exact command from `.mcp.json`
 
   The new tests failed before the implementation because of missing behaviour (empty tool list or "not implemented"); server start, connection and shutdown already worked, so one protocol test passed early. 7 deliberately broken variants (e.g. error without `isError`, diagnostics on stdout, request applied twice, wrong annotation) each made the corresponding tests fail.
+- [x] Favourite tools (phase 2), covered by 36 further tests (290 in total):
+  - `get_favorites` (read-only): all favourites with id, name, category, aliases and dm identifiers; never creates the store file
+  - `save_favorite`: validates name, required category, optional aliases (0–20), article number and dm URL (start page rejected) with the existing validation; generates id and `createdAt` in the server layer; checks alias uniqueness after normalisation – against all favourites and within the input – inside the same locked `update` as the write; duplicate names allowed; `DUPLICATE_ALIAS` or any error writes nothing; success only after the write
+  - annotations: `get_favorites` read-only; `save_favorite` not read-only and **not idempotent** (every successful call creates another favourite); its description tells the client to save only confirmed products and identifiers, and to call `get_favorites` before retrying after an unclear outcome
+  - tests: core functions, the JSON store (no write on conflict, failing write without success), two separate OS processes saving the same alias at the same time (exactly one succeeds), and the real MCP server process (read, save then read, resolve and add, conflicts, validation, storage failure)
 
-Covered through the MCP tools, automated (the manual Claude Code run additionally covered resolve, add, technical retry, new request, an ambiguous term and persistence across sessions):
+  The new tests failed before the implementation (missing behaviour: "not implemented", unknown tools, missing tool-list entries, missing dm entry; no setup errors). 8 deliberately broken variants (e.g. no alias check against existing favourites or within the input, no normalisation, alias check outside the lock, `save_favorite` marked idempotent) each made the corresponding tests fail.
+
+Covered through the MCP tools, automated (the manual Claude Code runs additionally covered resolve, add, technical retry, new request, an ambiguous term and persistence across sessions in phase 1, and dm search, saving a favourite, a duplicate alias, resolving and adding it, and persistence across sessions in phase 2):
 
 - `resolve_items`: AC-R1, AC-R3, AC-R5, AC-R6, AC-R7 via MCP; AC-R2 and AC-R4 on the core functions.
 - `add_to_shopping_list`: AC-A1, AC-A2, AC-A8, AC-A9, AC-A10, AC-A12, AC-A15 via MCP; the others on the core functions and the JSON store (AC-A14 storage tests).
 - `get_shopping_list`: AC-L1–L4 via MCP.
+- `get_favorites` / `save_favorite`: AC-F1 and AC-S1–S4 via MCP and on the core functions; also used in the phase 2 Claude Code run.
 - The UI does not use the store yet; whether the location-based path lookup works when Next.js bundles the code (A8) is open.
 
 Known `npm audit` findings (accepted for now):
@@ -68,12 +78,12 @@ Known `npm audit` findings (accepted for now):
 - Unchanged after adding `proper-lockfile` and `tsx`. Note: `proper-lockfile` 4.1.2 has had no release since 2022; npm also reports that the `postinstall` script of `esbuild` (used by `tsx`) is not approved – `tsx` works without it.
 
 - [x] Vertical slice, automated: resolve, add and list through the real MCP server process (tests above).
-- [x] Manual run in Claude Code on 2026-11-18 (two sessions, demo store): resolve and add, technical retry with `replayed: true`, new request with a new requestId, ambiguous term with a follow-up question and nothing added, list kept across sessions – all passed; deviations from the planned order are documented in [docs/manual-check.md](docs/manual-check.md).
+- [x] Manual run in Claude Code on 2026-11-18 (two sessions, demo store): resolve and add, technical retry with `replayed: true`, new request with a new requestId, ambiguous term with a follow-up question and nothing added, list kept across sessions – all passed; deviations from the planned order are documented in [docs/manual-check.md](docs/manual-check.md#phase-1-run).
+- [x] Live run in Claude Code with both servers on 2026-11-18 (phase 2; two sessions, demo store): product search via dm's MCP server only; dm returned `dan`, `gtin` and an app link (no plain product page URL), so only the DAN was stored; favourite saved after explicit confirmation; duplicate alias in other case and spacing rejected with `DUPLICATE_ALIAS`, nothing saved; resolved and added with quantity 2; in a new session the favourite had the same id and the entry still quantity 2 – all passed; details and deviations in [docs/manual-check.md](docs/manual-check.md#phase-2-run).
 
 Open:
 
-- [ ] Planned: favourite management, MCP tools `get_favorites` and `save_favorite` (phase 2)
-- [ ] Planned: dm connection – `.mcp.json` with dm's MCP server and a documented manual end-to-end run (phase 2)
+- [ ] Private local store (local MCP scope, not in `.mcp.json`) with three personal favourites – not set up yet
 - [ ] Planned: shopping UI (Next.js) – favourites, shopping list, mark as bought / remove, using the shared store (A8), with Playwright E2E tests (phase 3)
 - [ ] ESLint and CI (deliberately postponed)
 
@@ -114,10 +124,12 @@ Open:
 | `resolve_items` | implemented | list of `{ term, quantity }` | Per item: `resolved` (one favourite), `ambiguous` (candidates) or `unknown`. Never picks at random. Read-only. |
 | `add_to_shopping_list` | implemented | `requestId`, list of `{ favoriteId, quantity }` or `{ product, quantity }` | Adds items; merges quantities for items already on the list. Idempotent per `requestId`. |
 | `get_shopping_list` | implemented | – | Open entries, oldest first. Read-only. |
-| `get_favorites` | planned | – | Saved favourites with category, aliases (e.g. "the usual wet wipes") and dm product link. |
-| `save_favorite` | planned | product data (name, category, aliases, dm link) | Stores a new favourite. |
+| `get_favorites` | implemented | – | Saved favourites with category, aliases (e.g. "the usual wet wipes") and dm identifiers. Read-only. |
+| `save_favorite` | implemented | `name`, `category`, optional `aliases`, `dmArticleNumber`, `dmUrl` | Stores a new favourite with a server-generated id. Aliases must be unique (`DUPLICATE_ALIAS`), names may repeat. Not idempotent. |
 
-Errors are tool results with `isError: true` and a JSON body `{ "code", "message", "details"? }` (SPEC §4.7). Unexpected internal exceptions return `INTERNAL_ERROR`: no success is claimed and details go only to stderr, but it is not guaranteed that nothing was changed. The tool descriptions tell the client to ask back on `ambiguous`/`unknown` and explain the `requestId` rules; the server cannot enforce how the client behaves.
+dm's public MCP server (product search, product details, store availability, store search) is a separate server in `.mcp.json`. Claude combines both as the client; this server never calls dm. Neither server offers a cart or ordering. dm's documentation does not specify which product identifiers it returns; a dm article number, a GTIN/EAN and the number in a dm product URL are not treated as the same thing. Observed in the phase 2 live run: dm returned the DAN (`dan`), the GTIN (`gtin`) and a dm app link with a tracking parameter, not a plain product page URL. Only the DAN is stored as `dmArticleNumber`; the GTIN and the app link are left out.
+
+Errors are tool results with `isError: true` and a JSON body `{ "code", "message", "details"? }` (SPEC §4.7). Unexpected internal exceptions return `INTERNAL_ERROR`: no success is claimed and details go only to stderr, but it is not guaranteed that nothing was changed. The message is tool-specific: only `add_to_shopping_list` suggests retrying with the same requestId and items; `save_favorite` says the outcome is unclear and asks to check `get_favorites` instead of saving again; the read-only tools give no retry hint. The tool descriptions tell the client to ask back on `ambiguous`/`unknown` and explain the `requestId` rules; the server cannot enforce how the client behaves.
 
 **Duplicate rule**
 
@@ -160,7 +172,7 @@ SPEC.md                  # requirements and acceptance criteria
 CLAUDE.md                # project context and development rules for Claude Code
 .claude/settings.json    # Claude Code settings: Stop hook
 .claude/hooks/check.mjs  # Stop hook script (typecheck + Vitest)
-.mcp.json                # project MCP config: einkaufshelfer (demo store); dm planned
+.mcp.json                # project MCP config: einkaufshelfer (demo store) and dm-drogeriemarkt
 ```
 
 ## Getting started
@@ -180,7 +192,7 @@ npm run mcp                       # MCP server on stdio (normally started by the
 
 ### Use it with Claude Code
 
-The project's `.mcp.json` starts the server with `node "${CLAUDE_PROJECT_DIR:-.}/bin/einkaufshelfer-mcp.mjs"` (no absolute paths; Claude Code runs project servers in the project directory, the entry point itself does not depend on the working directory). For now it points to a separate **demo store** `data/demo-store.json` (git-ignored) with the fictional sample favourites. dm's MCP server is not configured yet.
+The project's `.mcp.json` starts the server with `node "${CLAUDE_PROJECT_DIR:-.}/bin/einkaufshelfer-mcp.mjs"` (no absolute paths; Claude Code runs project servers in the project directory, the entry point itself does not depend on the working directory). For now it points to a separate **demo store** `data/demo-store.json` (git-ignored) with the fictional sample favourites. It also lists dm's public MCP server `dm-drogeriemarkt` (`https://mcp.dm.de/mcp`, HTTP, no credentials; dm documents no usage limits – keep request volumes low).
 
 1. Create the demo store once (PowerShell, then bash):
 
@@ -192,10 +204,10 @@ The project's `.mcp.json` starts the server with `node "${CLAUDE_PROJECT_DIR:-.}
    EINKAUFSHELFER_DATA_FILE=data/demo-store.json npm run seed
    ```
 
-2. Start a **new** Claude Code session in the project folder (a running session does not pick up a newly added `.mcp.json`). Claude Code asks once whether to use the project server `einkaufshelfer`; approve it. `node` must be on the PATH of Claude Code.
-3. Check the connection with `/mcp` in the session (or `claude mcp list` / `claude mcp get einkaufshelfer` in a terminal): `einkaufshelfer` should be connected with three tools. The server writes its store path to stderr.
+2. Start a **new** Claude Code session in the project folder (a running session does not pick up changes to `.mcp.json`). Claude Code asks whether to use the project servers `einkaufshelfer` and `dm-drogeriemarkt`; approve them. `node` must be on the PATH of Claude Code.
+3. Check the connection: ask Claude which tools of both servers are available (in the desktop app `/mcp` may open the plugin view instead), or run `claude mcp list` / `claude mcp get einkaufshelfer` in a terminal. `einkaufshelfer` should offer five tools. The server writes its store path to stderr.
 
-**Manual check: performed on 2026-11-18, all five checks passed.** Requests, observed results and deviations are in [docs/manual-check.md](docs/manual-check.md). Reset the demo by deleting `data/demo-store.json` and seeding again. Automated SDK tests do not replace this run.
+**Manual checks: phase 1 and phase 2 runs performed on 2026-11-18, all checks passed.** Requests, observed results and deviations are in [docs/manual-check.md](docs/manual-check.md). Reset the demo by deleting `data/demo-store.json` and seeding again. Automated SDK tests do not replace these runs.
 
 ## Tests
 
@@ -223,9 +235,9 @@ Automated tests use fixed, fictional sample data and never call dm's live server
 | UI: add and display | Items appear with correct quantities | planned (no shopping UI yet; the Playwright smoke test only covers the placeholder start page) |
 | UI: mark as bought | Item disappears from the open list | planned |
 
-### Manual end-to-end check with dm and UI (planned, not yet run)
+### Manual end-to-end check with dm and UI
 
-Planned once dm's MCP server and the UI are connected: a documented example run in Claude Code with both servers: request → dm search → selection → item on the list → visible in the UI. Neither dm nor the UI is integrated yet, and this run has not been done. The manual check of the three current tools is documented in [docs/manual-check.md](docs/manual-check.md).
+Done for dm (phase 2): request → dm search → selection → saved favourite → item on the list, in Claude Code with both servers ([docs/manual-check.md](docs/manual-check.md#phase-2-run)). Planned once the UI exists: the same flow ending with the item visible in the UI; the UI is not built yet, so this part has not been run.
 
 ## Agentic workflow
 

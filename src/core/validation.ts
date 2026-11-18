@@ -12,6 +12,7 @@ import type {
   AddToShoppingListInput,
   ProductRef,
   ResolveItemsInput,
+  SaveFavoriteInput,
 } from "./types";
 
 /** Shared limits and patterns; also used to validate the stored data. */
@@ -113,6 +114,32 @@ export const addToShoppingListInputSchema = z.strictObject({
 
 export const getShoppingListInputSchema = z.strictObject({});
 
+export const getFavoritesInputSchema = z.strictObject({});
+
+export const saveFavoriteInputSchema = z.strictObject({
+  name: text(TEXT_MAX.name).describe(
+    "Product name as the user confirmed it (brand, variant, pack size)",
+  ),
+  category: text(TEXT_MAX.category).describe(
+    'Category, e.g. "Zahnpflege"; required',
+  ),
+  aliases: z
+    .array(text(TEXT_MAX.alias).describe('e.g. "die übliche Zahnpasta"'))
+    .max(MAX_ALIASES)
+    .default([])
+    .describe(
+      "0–20 phrases the family uses for this product; unique across all favourites after normalisation",
+    ),
+  dmArticleNumber: dmArticleNumber
+    .optional()
+    .describe(
+      "confirmed dm article number (DAN), 1–13 digits; not a GTIN/EAN and not a number from a URL unless confirmed as the DAN",
+    ),
+  dmUrl: dmUrl
+    .optional()
+    .describe("dm product page URL on www.dm.de (not the start page)"),
+});
+
 export function validateResolveItemsInput(
   input: unknown,
 ): Result<ResolveItemsInput> {
@@ -129,6 +156,38 @@ export function validateGetShoppingListInput(
   if (!parsed.success)
     return validationError("get_shopping_list", parsed.error);
   return { ok: true, value: {} };
+}
+
+/** `get_favorites` takes no arguments; missing arguments count as `{}`. */
+export function validateGetFavoritesInput(
+  input: unknown,
+): Result<Record<string, never>> {
+  const parsed = getFavoritesInputSchema.safeParse(input ?? {});
+  if (!parsed.success) return validationError("get_favorites", parsed.error);
+  return { ok: true, value: {} };
+}
+
+/**
+ * `save_favorite` input (SPEC §6.6): ProductRef with required category and
+ * optional aliases. Text is trimmed and the dm URL normalised. Alias
+ * uniqueness is a business rule checked by `saveFavorite`.
+ */
+export function validateSaveFavoriteInput(
+  input: unknown,
+): Result<SaveFavoriteInput> {
+  const parsed = saveFavoriteInputSchema.safeParse(input);
+  if (!parsed.success) return validationError("save_favorite", parsed.error);
+  const { name, category, aliases, dmArticleNumber, dmUrl } = parsed.data;
+  return {
+    ok: true,
+    value: {
+      name,
+      category,
+      aliases,
+      ...(dmArticleNumber !== undefined ? { dmArticleNumber } : {}),
+      ...(dmUrl !== undefined ? { dmUrl } : {}),
+    },
+  };
 }
 
 export function validateAddToShoppingListInput(

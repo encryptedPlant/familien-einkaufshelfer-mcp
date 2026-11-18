@@ -4,8 +4,8 @@ MCP server (TypeScript) that turns structured shopping requests from an AI clien
 
 ## Layout
 
-- `src/core/` pure domain logic, no I/O: validation, normalisation, identity, matching, merging and idempotency (`addToShoppingList` takes the state, time and ID generator from the caller) · `src/store/` storage: `resolveStorePath()`, `Store` (`read`, `update(fn)`), JSON file adapter with cross-process lock, `addToShoppingListInStore`, seed · `src/mcp/` MCP stdio server: `tools.ts` (definitions, handlers), `server.ts` (SDK `Server` wiring), `main.ts` (start-up)
-- `bin/einkaufshelfer-mcp.mjs` server entry point (node + local tsx loader) · `.mcp.json` project MCP config (currently the demo store `data/demo-store.json`) · `scripts/seed.ts` behind `npm run seed`
+- `src/core/` pure domain logic, no I/O: validation, normalisation, identity, matching, saving favourites, merging and idempotency (`addToShoppingList` takes the state, time and ID generator from the caller) · `src/store/` storage: `resolveStorePath()`, `Store` (`read`, `update(fn)`), JSON file adapter with cross-process lock, `addToShoppingListInStore`, seed · `src/mcp/` MCP stdio server: `tools.ts` (definitions, handlers), `server.ts` (SDK `Server` wiring), `main.ts` (start-up)
+- `bin/einkaufshelfer-mcp.mjs` server entry point (node + local tsx loader) · `.mcp.json` project MCP config: `einkaufshelfer` with the demo store `data/demo-store.json` and dm's public server `dm-drogeriemarkt` (Claude combines both; our server never calls dm; private stores belong in the local MCP scope, never in `.mcp.json`) · `scripts/seed.ts` behind `npm run seed`
 - `app/` Next.js App Router UI (currently only a placeholder start page)
 - `docs/manual-check.md` manual Claude Code check; record only observed results
 - `tests/` Vitest tests, `*.test.ts` only (`tests/fixtures/` holds fixed, fictional sample data; `tests/store/worker.ts` runs as a separate process via the tsx loader; `tests/mcp/` drives the real server process through the SDK client) · `e2e/` Playwright specs, `*.spec.ts` only
@@ -34,3 +34,4 @@ MCP server (TypeScript) that turns structured shopping requests from an AI clien
 - Stop hook: runs typecheck and Vitest when you finish a turn and blocks on failure (exit 2). Fix the cause; never weaken, skip or delete tests to get green. After 3 blocked stops in one turn a loop guard lets the turn end and says so explicitly. The hook mirrors the `typecheck` and `test` scripts; keep both in sync.
 - Never commit real household data, secrets, `.env*` files, the local store (`data/store.json`) or test artefacts (`test-results/`, `playwright-report/`).
 - Commits: small and focused; show the summary and planned message and wait for approval before committing, pushing or merging.
+- Before every commit, check the effective author address with `git config user.email`. It must be the confirmed GitHub noreply address of the account encryptedPlant, `69851071+encryptedPlant@users.noreply.github.com`. If it differs, stop. Never change the global Git configuration.

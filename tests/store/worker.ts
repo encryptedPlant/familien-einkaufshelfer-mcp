@@ -4,13 +4,19 @@
 
 import { createInterface } from "node:readline";
 import type { AddContext } from "../../src/core/add-to-list";
-import { validateAddToShoppingListInput } from "../../src/core/validation";
+import {
+  validateAddToShoppingListInput,
+  validateSaveFavoriteInput,
+} from "../../src/core/validation";
 import {
   acquireStoreLock,
   createJsonFileStore,
   type JsonFileStoreOptions,
 } from "../../src/store/json-file-store";
-import { addToShoppingListInStore } from "../../src/store/operations";
+import {
+  addToShoppingListInStore,
+  saveFavoriteInStore,
+} from "../../src/store/operations";
 import { resolveStorePath } from "../../src/store/path";
 
 export type WorkerCommand =
@@ -27,6 +33,15 @@ export type WorkerCommand =
   | {
       readonly type: "hold-lock";
       readonly storePath: string;
+      readonly options?: JsonFileStoreOptions;
+    }
+  | {
+      readonly type: "save-favorite";
+      readonly storePath: string;
+      readonly favorite: unknown;
+      readonly idPrefix: string;
+      readonly now: string;
+      readonly waitForGo: boolean;
       readonly options?: JsonFileStoreOptions;
     };
 
@@ -87,6 +102,20 @@ async function main(): Promise<void> {
       const compromised = lock.isCompromised();
       await lock.release();
       send({ event: "released", compromised });
+      return;
+    }
+
+    case "save-favorite": {
+      const store = createJsonFileStore(command.storePath, command.options);
+      const input = validateSaveFavoriteInput(command.favorite);
+      if (!input.ok) throw new Error(input.error.message);
+      send({ event: "ready" });
+      if (command.waitForGo) await waitForLine("go");
+      const result = await saveFavoriteInStore(store, input.value, {
+        now: command.now,
+        newId: idGenerator(command.idPrefix),
+      });
+      send({ event: "done", result });
       return;
     }
   }
