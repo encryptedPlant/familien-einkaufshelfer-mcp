@@ -145,7 +145,7 @@ No substring or fuzzy matching. The server never picks one of several candidates
 
 ### 4.7 Errors
 
-Tool errors are returned as MCP tool results with `isError: true` and a JSON body `{ "code": string, "message": string, "details"?: object }`. Nothing is written when an error is returned.
+Tool errors are returned as MCP tool results with `isError: true` and a JSON body `{ "code": string, "message": string, "details"?: object }`. Nothing is written when one of the expected errors below is returned; for `INTERNAL_ERROR` see the note after the table.
 
 | Code | When |
 |---|---|
@@ -157,6 +157,9 @@ Tool errors are returned as MCP tool results with `isError: true` and a JSON bod
 | `DUPLICATE_ALIAS` | Phase 2: alias already in use |
 | `STORAGE_UNAVAILABLE` | Lock timeout, missing permissions or other I/O failure |
 | `STORAGE_CORRUPT` | Store file content is invalid (JSON, schema, version) |
+| `INTERNAL_ERROR` | Unexpected internal exception in the server |
+
+`INTERNAL_ERROR` never claims success; technical details are only logged to stderr, never returned to the client. It does not guarantee that nothing was changed: an unexpected exception may occur after a write has already completed. Expected failures always use the codes above.
 
 ## 5. Requirements
 

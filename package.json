@@ -13,6 +13,7 @@
     "test": "vitest run --passWithNoTests",
     "test:e2e": "playwright test",
     "seed": "tsx scripts/seed.ts",
+    "mcp": "node bin/einkaufshelfer-mcp.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

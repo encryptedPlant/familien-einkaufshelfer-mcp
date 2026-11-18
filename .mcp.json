@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "einkaufshelfer": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${CLAUDE_PROJECT_DIR:-.}/bin/einkaufshelfer-mcp.mjs"],
+      "env": {
+        "EINKAUFSHELFER_DATA_FILE": "data/demo-store.json"
+      }
+    }
+  }
+}

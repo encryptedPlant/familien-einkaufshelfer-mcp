@@ -12,7 +12,7 @@ For new products, the AI client also uses **dm's public MCP server** to search t
 
 ## Status
 
-Project scaffold, the phase 1 core logic as pure, unit-tested functions (validation, normalisation, product identity, matching; merging, rejection of faulty requests, payload hash, replay decision) and the JSON file storage with cross-process locking. **Nothing is usable through Claude yet:** there are no MCP tools and no shopping UI; the storage is only exercised by tests and `npm run seed`. The MCP tools come next.
+Project scaffold, the phase 1 core logic as pure, unit-tested functions (validation, normalisation, product identity, matching; merging, rejection of faulty requests, payload hash, replay decision) , the JSON file storage with cross-process locking, and a first MCP server (stdio) with `resolve_items`, `add_to_shopping_list` and `get_shopping_list`. The server is tested automatically through the MCP SDK client; **a run in Claude Code is still open** (see *Use it with Claude Code*). Not there yet: `get_favorites`, `save_favorite`, the dm connection and the shopping UI.
 
 Done and verified:
 
@@ -45,11 +45,20 @@ Done and verified:
 
   Concurrency and crashes are tested with separate OS processes synchronised by messages (no sleeps): two writers, the same request from two processes, a replay after a restart, different working directories, a lock held beyond the timeout, an actively refreshed lock that is not stolen, and a killed lock holder whose stale lock is taken over. I/O errors are simulated through an injected file-system adapter. All tests use their own temp directories. The 81 new tests failed before the implementation (all due to "not implemented", 9 of them inside worker processes; no setup errors). 11 deliberately broken variants were tried: 10 made the corresponding tests fail; retrying non-`ELOCKED` lock errors until the timeout went unnoticed (same result, only later; such errors cannot be simulated without bypassing the library). 3 regression tests for a lock lost during the write (detected while the temp file is written, or after a failed rename; also with a failing cleanup) trigger a real takeover of the lock directory, failed with the earlier code (it reported success) and pass now.
 
-Partly covered (not yet through MCP tools or the UI):
+- [x] MCP server (`src/mcp/`, entry `bin/einkaufshelfer-mcp.mjs`, `npm run mcp`), covered by 23 further tests (254 in total):
+  - stdio transport; stdout carries only MCP messages; diagnostics and the absolute store path go to stderr; the server exits cleanly when the client closes stdin
+  - started directly with `node` and a local entry point that registers the installed tsx loader relative to its own location: no npm/npx, no downloads, independent of the working directory
+  - `resolve_items` (read-only), `add_to_shopping_list` (requestId check, merge and write in one locked `update`; IDs and timestamps generated in the server layer), `get_shopping_list` (open entries by `addedAt`, never creates the file); tool descriptions contain the client guidance for `ambiguous`/`unknown` and the `requestId` rules; annotations `readOnlyHint`, `idempotentHint`, `destructiveHint: false`, `openWorldHint: false`
+  - errors as tool results with `isError: true` and a JSON body `{ code, message, details }`, also for invalid input
+  - integration tests start the real server as a separate process through the SDK client (`StdioClientTransport`), each with its own temp store, also from another working directory and with the exact command from `.mcp.json`
 
-- `resolve_items` criteria AC-R1–R5 and AC-R7 are tested on the core functions; the MCP tool does not exist yet. AC-R6 ("store unchanged") is only shown for the inputs of the pure function.
-- `add_to_shopping_list` criteria AC-A1–A15 are tested on the core functions and, for the storage parts (nothing written on errors, replay after a restart, AC-A14, AC-A15), on the JSON store. The MCP tool does not exist yet.
-- `get_shopping_list` criteria AC-L3 and AC-L4 are tested on `read()` only; filtering and ordering of open entries (AC-L1, AC-L2) belong to the MCP tool.
+  The new tests failed before the implementation because of missing behaviour (empty tool list or "not implemented"); server start, connection and shutdown already worked, so one protocol test passed early. 7 deliberately broken variants (e.g. error without `isError`, diagnostics on stdout, request applied twice, wrong annotation) each made the corresponding tests fail.
+
+Covered through the MCP tools, automated (not yet in a Claude Code run):
+
+- `resolve_items`: AC-R1, AC-R3, AC-R5, AC-R6, AC-R7 via MCP; AC-R2 and AC-R4 on the core functions.
+- `add_to_shopping_list`: AC-A1, AC-A2, AC-A8, AC-A9, AC-A10, AC-A12, AC-A15 via MCP; the others on the core functions and the JSON store (AC-A14 storage tests).
+- `get_shopping_list`: AC-L1–L4 via MCP.
 - The UI does not use the store yet; whether the location-based path lookup works when Next.js bundles the code (A8) is open.
 
 Known `npm audit` findings (accepted for now):
@@ -61,8 +70,8 @@ Known `npm audit` findings (accepted for now):
 Open:
 
 - [ ] Vertical slice: resolve favourite → add to list → show list → tests pass
-- [ ] MCP tools implemented (`get_favorites`, `resolve_items`, `get_shopping_list`, `add_to_shopping_list`, `save_favorite`)
-- [ ] MCP server logs the absolute store path on start-up (SPEC §4.6)
+- [ ] Manual run of `resolve_items`, `add_to_shopping_list` and `get_shopping_list` in Claude Code (steps below)
+- [ ] MCP tools `get_favorites` and `save_favorite` (phase 2)
 - [ ] Next.js UI: favourites, shopping list, mark as bought / remove – using the shared store (A8)
 - [ ] Playwright E2E tests for the UI beyond the smoke test
 - [ ] `.mcp.json` with this server and dm's MCP server
@@ -101,13 +110,15 @@ Open:
 
 ## MCP tools
 
-| Tool | Input | Behaviour |
-|---|---|---|
-| `get_favorites` | – | Saved favourites with category, aliases (e.g. "the usual wet wipes") and dm product link. |
-| `resolve_items` | list of `{ term, quantity }` | Per item: `resolved` (one favourite), `ambiguous` (candidates) or `unknown`. Never picks at random. |
-| `get_shopping_list` | – | Current shopping list. |
-| `add_to_shopping_list` | `requestId`, list of `{ favoriteId, quantity }` | Adds items; merges quantities for items already on the list. Idempotent per `requestId`. |
-| `save_favorite` | product data (name, category, aliases, dm link) | Stores a new favourite. |
+| Tool | Status | Input | Behaviour |
+|---|---|---|---|
+| `resolve_items` | implemented | list of `{ term, quantity }` | Per item: `resolved` (one favourite), `ambiguous` (candidates) or `unknown`. Never picks at random. Read-only. |
+| `add_to_shopping_list` | implemented | `requestId`, list of `{ favoriteId, quantity }` or `{ product, quantity }` | Adds items; merges quantities for items already on the list. Idempotent per `requestId`. |
+| `get_shopping_list` | implemented | – | Open entries, oldest first. Read-only. |
+| `get_favorites` | planned | – | Saved favourites with category, aliases (e.g. "the usual wet wipes") and dm product link. |
+| `save_favorite` | planned | product data (name, category, aliases, dm link) | Stores a new favourite. |
+
+Errors are tool results with `isError: true` and a JSON body `{ "code", "message", "details"? }` (SPEC §4.7). Unexpected internal exceptions return `INTERNAL_ERROR`: no success is claimed and details go only to stderr, but it is not guaranteed that nothing was changed. The tool descriptions tell the client to ask back on `ambiguous`/`unknown` and explain the `requestId` rules; the server cannot enforce how the client behaves.
 
 **Duplicate rule**
 
@@ -133,20 +144,23 @@ src/
   core/                  # pure functions: validation, normalisation, identity, matching,
                          #   merging, payload hash, replay decision
   store/                 # storage interface, store path, JSON file store with lock, seed
-  mcp/                   # (planned) MCP server exposing the tools (stdio)
+  mcp/                   # MCP server (stdio): tools, server wiring, start-up
+bin/einkaufshelfer-mcp.mjs  # entry point: node + local tsx loader, cwd-independent
 app/                     # Next.js UI – currently a placeholder start page
-data/                    # sample-favorites.json (fictional, committed); store.json is git-ignored
+data/                    # sample-favorites.json (fictional, committed); store.json and
+                         #   demo-store.json are git-ignored
 scripts/                 # seed.ts (`npm run seed`)
 tests/                   # Vitest tests, *.test.ts
   core/                  #   unit tests for src/core
   store/                 #   storage tests incl. separate worker processes (worker.ts)
+  mcp/                   #   MCP integration tests (real server process via the SDK client)
   fixtures/              #   fixed, fictional sample data
 e2e/                     # Playwright tests, *.spec.ts – smoke test
 SPEC.md                  # requirements and acceptance criteria
 CLAUDE.md                # project context and development rules for Claude Code
 .claude/settings.json    # Claude Code settings: Stop hook
 .claude/hooks/check.mjs  # Stop hook script (typecheck + Vitest)
-.mcp.json                # (planned) MCP servers for this project
+.mcp.json                # project MCP config: einkaufshelfer (demo store); dm planned
 ```
 
 ## Getting started
@@ -160,16 +174,38 @@ npm run dev                       # placeholder UI on http://localhost:3000
 npm run seed                      # optional: fictional sample favourites into an empty store
 ```
 
-The MCP server does not exist yet; `npm run mcp` will be added with it.
-
-### Use it with Claude Code (planned)
-
 ```bash
-claude mcp add einkaufshelfer -- npx tsx src/mcp/server.ts
-claude mcp add --transport http dm https://mcp.dm.de/mcp
+npm run mcp                       # MCP server on stdio (normally started by the MCP client)
 ```
 
-Then try: *"Add two packs of the usual wet wipes and a different toothpaste to the shopping list."*
+### Use it with Claude Code
+
+The project's `.mcp.json` starts the server with `node "${CLAUDE_PROJECT_DIR:-.}/bin/einkaufshelfer-mcp.mjs"` (no absolute paths; Claude Code runs project servers in the project directory, the entry point itself does not depend on the working directory). For now it points to a separate **demo store** `data/demo-store.json` (git-ignored) with the fictional sample favourites. dm's MCP server is not configured yet.
+
+1. Create the demo store once (PowerShell, then bash):
+
+   ```powershell
+   $env:EINKAUFSHELFER_DATA_FILE = "data/demo-store.json"; npm run seed; Remove-Item Env:EINKAUFSHELFER_DATA_FILE
+   ```
+
+   ```bash
+   EINKAUFSHELFER_DATA_FILE=data/demo-store.json npm run seed
+   ```
+
+2. Start a **new** Claude Code session in the project folder (a running session does not pick up a newly added `.mcp.json`). Claude Code asks once whether to use the project server `einkaufshelfer`; approve it. `node` must be on the PATH of Claude Code.
+3. Check the connection with `/mcp` in the session (or `claude mcp list` / `claude mcp get einkaufshelfer` in a terminal): `einkaufshelfer` should be connected with three tools. The server writes its store path to stderr.
+
+**Manual check (open, not yet run):**
+
+| Step | Ask Claude | Expected |
+|---|---|---|
+| 1 | "Wir brauchen zwei Packungen der üblichen Feuchttücher." | `resolve_items` → `resolved` (Feuchttücher sensitiv); `add_to_shopping_list` with a new requestId, quantity 2 |
+| 2 | "Wiederhole genau diesen Aufruf technisch mit derselben requestId." | `replayed: true`, list still shows 2 |
+| 3 | "Wir brauchen noch einmal zwei Packungen der üblichen Feuchttücher." | new requestId, entry merged, quantity 4 |
+| 4 | "Bitte etwas Zahnpflege auf die Liste." | `resolve_items` → `ambiguous` (Zahnpasta Minze / Kräuter); Claude asks back; `get_shopping_list` shows nothing new until you choose |
+| 5 | "Was steht auf der Einkaufsliste?" | `get_shopping_list` with the open entries |
+
+Reset the demo by deleting `data/demo-store.json` and seeding again. Automated SDK tests do not replace this run.
 
 ## Tests
 
@@ -187,19 +223,19 @@ Automated tests use fixed, fictional sample data and never call dm's live server
 
 | Test case | Expected behaviour | Status |
 |---|---|---|
-| "Two packs of the usual wet wipes" | Resolved favourite, quantity 2 | core unit test (AC-R1); adding to the list open |
+| "Two packs of the usual wet wipes" | Resolved favourite, quantity 2 | core and MCP tests (AC-R1, AC-A1); Claude Code run open |
 | "The usual toothpaste" | Resolved favourite | same alias rule as AC-R1, no separate test |
 | "Toothpaste" with two matching favourites | `ambiguous` with both candidates | core unit test (AC-R3) |
 | Unknown product | `unknown` | core unit test (AC-R5) |
 | Item already on the list, new request | Quantity merged | core unit test (AC-A2) |
 | Same request retried (same `requestId`) | List unchanged | core unit test (AC-A8); replay in a new process (AC-ST2) |
-| Storage unavailable / write fails | Clear error, no success message | storage tests (AC-A14, AC-ST6, AC-ST7); not yet through the MCP tool |
+| Storage unavailable / write fails | Clear error, no success message | storage tests (AC-A14, AC-ST6, AC-ST7); corrupt store through MCP (AC-A15, AC-L4) |
 | UI: add and display | Items appear with correct quantities | planned |
 | UI: mark as bought | Item disappears from the open list | planned |
 
-### Manual check
+### Manual check (planned, not yet run)
 
-Documented example run in Claude Code with both servers connected: request → dm search → selection → item on the list → visible in the UI.
+Planned once dm's MCP server and the UI are connected: a documented example run in Claude Code with both servers: request → dm search → selection → item on the list → visible in the UI. Neither dm nor the UI is integrated yet, and this run has not been done. The open manual check of the three current tools is described under *Use it with Claude Code*.
 
 ## Agentic workflow
 
