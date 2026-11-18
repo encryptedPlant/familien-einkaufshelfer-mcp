@@ -73,4 +73,42 @@ Chat 1 is the live run; chat 2 is a new session that only called `get_favorites`
 - The user's later requests (add, duplicate alias) arrived mid-turn before a product was chosen. Claude handled them in that order: nothing was saved or added before the explicit choice, and the duplicate-alias check was done only after the first save.
 - Checks 1, 2 and 5 are taken from the tool calls and output in the session transcript together with Claude's report; Claude showed raw output in the chat for `save_favorite` (success and `DUPLICATE_ALIAS`) only.
 - No dm product page URL (`dmUrl`) was confirmed in this run, so storing and merging by `dmUrl` from dm data was not checked live (it is covered by the automated tests).
-- The demo store now contains two real dm products (from the phase 1 and phase 2 runs). It is local and git-ignored; reset it (delete it and seed again) before the next run.
+- The demo store now contains two real dm products (from the phase 1 and phase 2 runs). It is local and git-ignored. Reset it (delete it and seed again) only after a backup copy and the user's explicit approval.
+
+### Supplementary run: dm link as `dmUrl` (chat 3)
+
+Performed on 2026-11-18 in a third Claude Code session (started from another session), against the same demo store, to cover the gap above: saving a link returned by dm as `dmUrl`.
+
+Sources: unless stated otherwise, each point below is taken from the tool output in the session transcript (raw output, visible to Claude). The user did not see that raw output. The user saw Claude's summaries in the chat and chose the product, the identifiers to store, the alias and the category in a question dialog.
+
+- **Connection:** `einkaufshelfer` offered the same five tools and `dm-drogeriemarkt` the same five tools as in chat 1 (checked through the tools actually available in the session).
+- **Store path (indirect evidence only):** the server's stderr line with the store path was not visible in this session. The demo store's modification time matched the time of the `add_to_shopping_list` call below, and its content matched the tool output. This makes it likely that the server used the demo store, but it does not show the resolved path itself.
+- **Identifiers returned by dm** (`searchProducts`, 15 hits, and `getProductDetails` for 2 of them): `dan` (7 digits in all 17 results), `gtin` (13 digits in all 17), and a link (`appLink` / `productUrl`) of the form `www.dm.de/applink/p/d/<number>/<text>` with the query parameters `appPageType`, `appProductId` and `wt_mc`. In all 17 results, the number in the link path and `appProductId` equalled `dan`. That was observed only; dm does not document it.
+- **Save:** after the user had chosen a product and asked to save it with DAN and dm link, alias and category, `save_favorite` returned the favourite with `dmArticleNumber` = the DAN and `dmUrl` normalised as specified. The query string was removed and the path, including `/applink/`, was kept. The GTIN was not stored.
+- **Resolve:** the alias with different case and extra whitespace → `resolved` to the new favourite; the category term → `ambiguous` with three candidates (two fictional ones and the new favourite).
+- **Add and list:** `add_to_shopping_list` with a new requestId → `replayed: false`, `action: created`, quantity 1. `get_shopping_list` showed the new entry with the favourite's id, the DAN and the normalised link; the earlier entries were unchanged.
+- **Overlapping sessions:** while the product choice was pending in chat 3, chat 1 saved and added its favourite in the same demo store, about 50 minutes before chat 3 wrote (by the stored timestamps). The two sessions overlapped in time, but their writes did not happen at the same moment, so this is no evidence about simultaneous writes. Afterwards both changes were present in the tool output and in the file. Simultaneous writes from separate processes are covered by the automated process tests (AC-ST1, AC-ST3 and the test with two processes saving the same alias).
+
+Data model conflicts (derived from SPEC §4.2 and the observed dm output, not tested live; no code change made):
+
+1. A 13-digit GTIN matches the `dmArticleNumber` pattern (1–13 digits), so a GTIN passed as an article number by mistake would not be rejected. dm's own tools define the DAN as exactly 7 digits.
+2. dm's MCP server returns app links (`/applink/p/d/<DAN>/<text>`), while the dm website link stored in the phase 1 run had the form `/p/d/<DAN>/<text>`. Normalisation keeps the path, so the two forms, and links with a different `<text>`, count as different URLs. Products identified only by such a URL would not be merged. If both sides have a DAN, rule 1 decides and the link form does not matter.
+
+The demo store now contains three real dm products from these runs. Reset it only after a backup copy and the user's explicit approval.
+
+## Private store setup
+
+Performed on 2026-11-18. The private store lives outside the repository, so `git check-ignore` does not apply to it; `git status` showed no store file. Paths and contents are not recorded here.
+
+**Status:**
+
+- Confirmed: the registration in the local MCP scope, and a direct start of the server with the registered command.
+- Still open: use of the private store in a new Claude Code session, i.e. that a new session's `einkaufshelfer` actually reads and writes it.
+- Still open: the three personal favourites have not been saved yet.
+
+Sources: the points below are taken from the command and tool output in the session transcripts of two sessions: the session that set up the store, and chat 3 for the later `claude mcp get` check. The user saw Claude's summaries.
+
+- **Registration:** `claude mcp add-json --scope local einkaufshelfer '<json>'` with the complete start entry (`node`, the absolute path to `bin/einkaufshelfer-mcp.mjs`, `EINKAUFSHELFER_DATA_FILE`). `.mcp.json` was not changed. The `claude` CLI was not on the PATH; the Claude Code binary bundled with the desktop app was used, nothing was installed. In Git Bash the first attempt failed with `Invalid configuration: : Invalid input`, because the shell rewrote the Windows paths in the argument (MSYS path conversion). With `MSYS_NO_PATHCONV=1` and forward slashes it succeeded.
+- **Checks:** `claude mcp get einkaufshelfer` showed `Scope: Local config (private to you in this project)` with that command, argument and variable. Compared with a backup of `~/.claude.json`, only this project's `mcpServers` and the app's own cache fields had changed. A direct start of the server with the same command and variable wrote the configured path as `store: …` to stderr and did not create the file. A later `claude mcp get einkaufshelfer` (chat 3) again showed the local scope and `Status: ✔ Connected`; the store file still did not exist.
+- **Running sessions keep the old entry:** in a session that was already open, the server still used the demo store (`get_favorites` returned the demo favourites) after the MCP servers reconnected. The local entry only applies in a new Claude Code session.
+- **Back to the demo:** `claude mcp remove einkaufshelfer -s local`. The project entry from `.mcp.json` with `data/demo-store.json` then applies again in new sessions. The private store file is not deleted.
