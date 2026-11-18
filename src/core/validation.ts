@@ -46,63 +46,95 @@ const dmUrl = z.string().transform((raw, ctx) => {
   return url;
 });
 
+// The descriptions below are published as the MCP input schemas.
+
 const productRefSchema = z
   .strictObject({
-    name: text(TEXT_MAX.name),
+    name: text(TEXT_MAX.name).describe("Product name"),
     category: text(TEXT_MAX.category).optional(),
-    dmArticleNumber: dmArticleNumber.optional(),
-    dmUrl: dmUrl.optional(),
+    dmArticleNumber: dmArticleNumber
+      .optional()
+      .describe("dm article number, 1–13 digits"),
+    dmUrl: dmUrl
+      .optional()
+      .describe("dm product page URL on www.dm.de (not the start page)"),
   })
   .refine((p) => p.dmArticleNumber !== undefined || p.dmUrl !== undefined, {
     message: "a direct product needs a dmArticleNumber or a dmUrl",
-  });
+  })
+  .describe(
+    "A concrete product the user has selected; needs dmArticleNumber or dmUrl",
+  );
 
-const resolveItemsSchema = z.strictObject({
+export const resolveItemsInputSchema = z.strictObject({
   items: z
     .array(
       z.strictObject({
-        term: text(TEXT_MAX.term),
-        quantity: quantity.default(1),
+        term: text(TEXT_MAX.term).describe(
+          'Requested item as the user said it, e.g. "die üblichen Feuchttücher"',
+        ),
+        quantity: quantity.default(1).describe("Integer 1–99, default 1"),
       }),
     )
     .min(1)
-    .max(50),
+    .max(50)
+    .describe("1–50 requested items"),
 });
 
 // One object with exactly one of `favoriteId` / `product` instead of a union,
 // so that field errors keep their path (e.g. `items.0.product.dmUrl`).
 const addItemSchema = z
   .strictObject({
-    favoriteId: z.string().min(1).optional(),
+    favoriteId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("id of a favourite that resolve_items returned as resolved"),
     product: productRefSchema.optional(),
-    quantity,
+    quantity: quantity.describe("Integer 1–99"),
   })
   .refine(
     (item) => (item.favoriteId === undefined) !== (item.product === undefined),
     {
       message: "an item needs exactly one of favoriteId or product",
     },
-  );
+  )
+  .describe("Exactly one of favoriteId or product, plus quantity");
 
-const addToShoppingListSchema = z.strictObject({
+export const addToShoppingListInputSchema = z.strictObject({
   requestId: z
     .string()
-    .regex(REQUEST_ID_PATTERN, "must be 1–128 characters of [A-Za-z0-9_-]"),
-  items: z.array(addItemSchema).min(1).max(50),
+    .regex(REQUEST_ID_PATTERN, "must be 1–128 characters of [A-Za-z0-9_-]")
+    .describe(
+      "Client-generated id of this request (e.g. a UUID), 1–128 characters of [A-Za-z0-9_-]",
+    ),
+  items: z.array(addItemSchema).min(1).max(50).describe("1–50 items"),
 });
+
+export const getShoppingListInputSchema = z.strictObject({});
 
 export function validateResolveItemsInput(
   input: unknown,
 ): Result<ResolveItemsInput> {
-  const parsed = resolveItemsSchema.safeParse(input);
+  const parsed = resolveItemsInputSchema.safeParse(input);
   if (!parsed.success) return validationError("resolve_items", parsed.error);
   return { ok: true, value: { items: parsed.data.items } };
+}
+
+/** `get_shopping_list` takes no arguments; missing arguments count as `{}`. */
+export function validateGetShoppingListInput(
+  input: unknown,
+): Result<Record<string, never>> {
+  const parsed = getShoppingListInputSchema.safeParse(input ?? {});
+  if (!parsed.success)
+    return validationError("get_shopping_list", parsed.error);
+  return { ok: true, value: {} };
 }
 
 export function validateAddToShoppingListInput(
   input: unknown,
 ): Result<AddToShoppingListInput> {
-  const parsed = addToShoppingListSchema.safeParse(input);
+  const parsed = addToShoppingListInputSchema.safeParse(input);
   if (!parsed.success)
     return validationError("add_to_shopping_list", parsed.error);
   const items: AddItem[] = [];
