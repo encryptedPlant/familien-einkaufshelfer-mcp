@@ -73,7 +73,7 @@ type ProcessedRequest = {
 Identifiers of a product:
 
 - **DAN** – `dmArticleNumber`.
-- **URL** – normalised `dmUrl`: scheme `https`, host lower-cased, `dm.de` mapped to `www.dm.de`, query string and fragment removed, trailing slash removed; path kept as is. Only hosts `www.dm.de` and `dm.de` are accepted.
+- **URL** – normalised `dmUrl`: scheme `https`, host lower-cased, `dm.de` mapped to `www.dm.de`, query string and fragment removed, trailing slash removed; path kept as is. Only hosts `www.dm.de` and `dm.de` are accepted. The path must not be empty after normalisation: the dm start page (e.g. `https://www.dm.de/`, also with query or fragment) is not a product URL and is rejected with `VALIDATION_ERROR`, even if a DAN is given.
 - **Favourite** – `favoriteId`, only for list entries created via a favourite.
 
 When an item references a favourite, it carries that favourite's DAN and URL. Two products A and B are **the same product** if:
@@ -213,7 +213,7 @@ Output (`AddResult`): `{ requestId, replayed: boolean, entries: { entryId, name,
 - **AC-A9a** A favourite is changed after a successful request (simulated by editing the store). Retrying the request with the same `requestId` and items still returns `replayed: true`, not `REQUEST_ID_CONFLICT`.
 - **AC-A10** One unknown `favoriteId` among valid items → `FAVORITE_NOT_FOUND`; nothing is written and the `requestId` is not recorded.
 - **AC-A11** A resulting quantity of 100 → `QUANTITY_LIMIT`; store unchanged.
-- **AC-A12** A direct product without DAN and URL, with a non-dm URL, or with a whitespace-only name → `VALIDATION_ERROR`.
+- **AC-A12** A direct product without DAN and URL, with a non-dm URL, with the dm start page as URL (also together with a DAN), or with a whitespace-only name → `VALIDATION_ERROR`.
 - **AC-A13** An item with DAN 456 + URL X, while an open entry has DAN 123 + URL X → `PRODUCT_IDENTITY_CONFLICT`; store unchanged. The same applies when an item matches two open entries.
 - **AC-A14** If the write fails (simulated), the tool returns `STORAGE_UNAVAILABLE`, the file content is unchanged and no success is reported.
 - **AC-A15** If the store file is corrupt, the tool returns `STORAGE_CORRUPT` and the file is left byte-for-byte unchanged.

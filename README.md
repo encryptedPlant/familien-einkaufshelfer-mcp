@@ -12,7 +12,7 @@ For new products, the AI client also uses **dm's public MCP server** to search t
 
 ## Status
 
-Only the project scaffold exists. **No shopping features are implemented yet.**
+Project scaffold plus the first part of the core logic (validation, normalisation, product identity, matching) as pure, unit-tested functions. **Nothing is usable yet:** there are no MCP tools, no storage and no shopping UI. Merging, rejection of faulty requests, payload hashing and the replay decision (core part b) come next.
 
 Done and verified:
 
@@ -20,10 +20,18 @@ Done and verified:
 - [x] Next.js placeholder start page. The Playwright smoke test (`npm run test:e2e`, Chromium) passes.
 - [x] Stop hook script checked by calling it directly: exit 0 when green; exit 2 with a readable report for a failing Vitest test, a type error and missing tools; the loop guard releases after 3 blocked stops and reports that explicitly.
 - [x] Stop hook verified in a real Claude Code turn: a deliberately failing Vitest test blocked the end of the turn and the failure report reached Claude; after removing the test the next stop was not blocked (see *Agentic workflow*).
+- [x] Core part (a) in `src/core/` (pure, no I/O), covered by 110 Vitest unit tests in `tests/core/`:
+  - input validation for `resolve_items` and `add_to_shopping_list` (SPEC §6.1, §6.2), incl. trimming and dm URL normalisation
+  - text normalisation (§4.1) and dm URL normalisation (§4.2)
+  - product identity incl. mixed and contradicting identifiers (§4.2)
+  - matching with alias → name → category priority; results `resolved`, `ambiguous` or `unknown` (§4.3)
 
-Current state, not a real pass:
+  The first 96 tests failed before the implementation (all with "not implemented", no import or configuration errors); the 12 tests added for the dm start-page rule (SPEC §4.2) failed before that rule was implemented. Deliberately broken variants of the code (8 cases, e.g. name before alias, no NFC, no URL normalisation, no conflict detection) each made the corresponding tests fail.
 
-- `npm test` passes only because **no Vitest test files exist yet** (`--passWithNoTests`). A failing test does make it fail (checked once with a temporary test).
+Partly covered (pure functions only, not yet through MCP tools or storage):
+
+- `resolve_items` criteria AC-R1–R5 and AC-R7 are tested on the core functions; the MCP tool does not exist yet. AC-R6 ("store unchanged") is only shown for the inputs of the pure function.
+- `add_to_shopping_list` criteria: only the validation (AC-A12) and the identity / normalisation parts of AC-A3–A6, AC-A8 and AC-A13 are tested; merging, idempotency and storage are open.
 
 Known `npm audit` findings (accepted for now):
 
@@ -36,7 +44,8 @@ Open:
 - [ ] MCP tools implemented (`get_favorites`, `resolve_items`, `get_shopping_list`, `add_to_shopping_list`, `save_favorite`)
 - [ ] Shared local storage for MCP server and UI
 - [ ] Next.js UI: favourites, shopping list, mark as bought / remove
-- [ ] Vitest unit tests for matching, merging, idempotency, error handling
+- [ ] Core part (b): merging, rejection of faulty requests as a whole, payload hash, replay decision – with Vitest tests
+- [ ] Storage integration tests (SPEC §6.4)
 - [ ] Playwright E2E tests for the UI beyond the smoke test
 - [ ] `.mcp.json` with this server and dm's MCP server
 - [ ] Manual end-to-end run with dm's MCP server documented
@@ -102,13 +111,16 @@ Next.js and Playwright are set up ahead of phase 3 (SPEC §2) so the scaffold is
 ## Project structure
 
 ```
-src/                     # (planned, phase 1)
-  core/                  # matching rules, merging, idempotency (pure functions)
-  store/                 # storage interface + local JSON implementation
-  mcp/                   # MCP server exposing the tools (stdio)
+src/
+  core/                  # pure functions: validation, normalisation, identity, matching
+                         #   (merging and idempotency planned)
+  store/                 # (planned) storage interface + local JSON implementation
+  mcp/                   # (planned) MCP server exposing the tools (stdio)
 app/                     # Next.js UI – currently a placeholder start page
 data/                    # (planned) fictional sample favourites; local store is git-ignored
-tests/                   # Vitest tests, *.test.ts (none yet)
+tests/                   # Vitest tests, *.test.ts
+  core/                  #   unit tests for src/core
+  fixtures/              #   fixed, fictional sample data
 e2e/                     # Playwright tests, *.spec.ts – smoke test
 SPEC.md                  # requirements and acceptance criteria
 CLAUDE.md                # project context and development rules for Claude Code
@@ -150,21 +162,19 @@ npm run format       # Prettier write
 
 Vitest only picks up `tests/**/*.test.ts`; Playwright only `e2e/**/*.spec.ts`, so `npm test` never starts a browser. `--passWithNoTests` only covers the case that no test files exist; failing tests still fail the run.
 
-The test cases below are planned; none of them is implemented yet.
+Automated tests use fixed, fictional sample data and never call dm's live server. The live integration is checked separately with a documented manual run (see *Manual check*). Test names start with the SPEC acceptance criterion they cover (e.g. `AC-R3: …`); "(… part)" marks criteria that are only partly covered so far.
 
-Automated tests use fixed sample data and never call dm's live server. The live integration is checked separately with a documented manual run (see *Manual check*).
-
-| Test case | Expected behaviour |
-|---|---|
-| "Two packs of the usual wet wipes" | Resolved favourite, quantity 2 |
-| "The usual toothpaste" | Resolved favourite |
-| "Toothpaste" with two matching favourites | `ambiguous` with both candidates |
-| Unknown product | `unknown` |
-| Item already on the list, new request | Quantity merged |
-| Same request retried (same `requestId`) | List unchanged |
-| Storage unavailable / write fails | Clear error, no success message |
-| UI: add and display | Items appear with correct quantities |
-| UI: mark as bought | Item disappears from the open list |
+| Test case | Expected behaviour | Status |
+|---|---|---|
+| "Two packs of the usual wet wipes" | Resolved favourite, quantity 2 | core unit test (AC-R1); adding to the list open |
+| "The usual toothpaste" | Resolved favourite | same alias rule as AC-R1, no separate test |
+| "Toothpaste" with two matching favourites | `ambiguous` with both candidates | core unit test (AC-R3) |
+| Unknown product | `unknown` | core unit test (AC-R5) |
+| Item already on the list, new request | Quantity merged | planned (core part b) |
+| Same request retried (same `requestId`) | List unchanged | planned (core part b) |
+| Storage unavailable / write fails | Clear error, no success message | planned |
+| UI: add and display | Items appear with correct quantities | planned |
+| UI: mark as bought | Item disappears from the open list | planned |
 
 ### Manual check
 
