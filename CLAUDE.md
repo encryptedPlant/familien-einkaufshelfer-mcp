@@ -1,0 +1,30 @@
+# CLAUDE.md
+
+MCP server (TypeScript) that turns structured shopping requests from an AI client into a clean family shopping list, plus a small Next.js UI later. `SPEC.md` is the source of truth for behaviour and acceptance criteria; review changes against it. `README.md` must reflect the state actually reached (SPEC R10).
+
+## Layout
+
+- `src/core/` pure domain logic, no I/O (planned) · `src/store/` storage interface + JSON file adapter (planned) · `src/mcp/` MCP stdio server (planned)
+- `app/` Next.js App Router UI (currently only a placeholder start page)
+- `tests/` Vitest tests, `*.test.ts` only · `e2e/` Playwright specs, `*.spec.ts` only
+- `data/` local store (git-ignored); only fictional `data/sample-*.json` is committed
+- `.claude/settings.json` Stop hook → `.claude/hooks/check.mjs`
+
+## Commands
+
+- `npm run dev` Next.js dev server on http://localhost:3000
+- `npm run typecheck` `tsc --noEmit`
+- `npm test` Vitest once (`vitest run --passWithNoTests`); never starts browsers
+- `npm run test:e2e` Playwright (starts `npm run dev` itself)
+- `npm run format` / `npm run format:check` Prettier (Markdown is excluded)
+
+## Conventions
+
+- TypeScript `strict` + `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes`; validate every tool input with Zod.
+- Code, comments and docs in English; UI texts and sample data in German.
+- Automated tests use fixed sample data only: never call dm's MCP server or an LLM.
+- Run `npm run format` before handing work over.
+- Next.js 16 differs from older versions: read the guide in `node_modules/next/dist/docs/` before writing UI code.
+- Stop hook: runs typecheck and Vitest when you finish a turn and blocks on failure (exit 2). Fix the cause; never weaken, skip or delete tests to get green. After 3 blocked stops in one turn a loop guard lets the turn end and says so explicitly. The hook mirrors the `typecheck` and `test` scripts; keep both in sync.
+- Never commit real household data, secrets, `.env*` files, the local store (`data/store.json`) or test artefacts (`test-results/`, `playwright-report/`).
+- Commits: small and focused; show the summary and planned message and wait for approval before committing, pushing or merging.

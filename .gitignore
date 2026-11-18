@@ -1,0 +1,33 @@
+# Dependencies
+/node_modules/
+
+# Next.js build output and generated types
+/.next/
+/out/
+next-env.d.ts
+*.tsbuildinfo
+
+# Test reports and artefacts
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/coverage/
+
+# Local environment files (secrets); a template may be committed
+.env
+.env.*
+!.env.example
+
+# Local store and household data (SPEC §4.6).
+# Only fictional sample data in data/sample-*.json is committed.
+/data/*
+!/data/sample-*.json
+
+# Claude Code personal settings
+/.claude/settings.local.json
+
+# Logs and OS files
+*.log
+.DS_Store
+Thumbs.db
