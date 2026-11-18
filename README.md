@@ -12,7 +12,7 @@ For new products, the AI client also uses **dm's public MCP server** to search t
 
 ## Status
 
-Project scaffold plus the phase 1 core logic as pure, unit-tested functions: validation, normalisation, product identity, matching (part a) and merging, rejection of faulty requests, payload hash and replay decision (part b). **Nothing is usable yet:** there are no MCP tools, no storage and no shopping UI. The JSON file storage comes next.
+Project scaffold, the phase 1 core logic as pure, unit-tested functions (validation, normalisation, product identity, matching; merging, rejection of faulty requests, payload hash, replay decision) and the JSON file storage with cross-process locking. **Nothing is usable through Claude yet:** there are no MCP tools and no shopping UI; the storage is only exercised by tests and `npm run seed`. The MCP tools come next.
 
 Done and verified:
 
@@ -35,23 +35,35 @@ Done and verified:
 
   The 37 new tests failed before the implementation (all with "not implemented", no setup errors). Store and input are deep-frozen in every test and compared after the call. 8 deliberately broken variants (e.g. merging into bought entries, hash depending on favourites, limit off by one, ignoring conflicts, order-insensitive hash) each made the corresponding tests fail.
 
-Partly covered (pure functions only, not yet through MCP tools or storage):
+- [x] JSON file storage in `src/store/` (SPEC §4.6, assumptions A9–A12), covered by 84 further tests (231 in total):
+  - `resolveStorePath()`: one shared path function; `<project root>/data/store.json` or `EINKAUFSHELFER_DATA_FILE` (relative to the project root), independent of the working directory
+  - `Store` interface with `read()` and `update(fn)`; JSON adapter `createJsonFileStore(path)`: full StoreFile validation incl. consistency rules (missing file → empty store, never created on read; invalid content or version → `STORAGE_CORRUPT`, file untouched; I/O errors → `STORAGE_UNAVAILABLE`)
+  - `update(fn)` under an exclusive cross-process lock (`proper-lockfile`, lock wait 5 s, stale after 4 s, refreshed nominally every 1 s), unique temp file in the same directory, rename retried on `EPERM`/`EBUSY` every 50 ms for up to 2 s, the store file is never deleted, a cleanup failure is logged without hiding the original error, the lock is always released unless it was lost
+  - the lock state is checked before writing and before every rename attempt: once a lock loss is known, no further rename starts, the temp file is removed and the result is `STORAGE_UNAVAILABLE`; a rename that has already started cannot be undone, so arbitrary process pauses are not fully covered (A9)
+  - `addToShoppingListInStore()`: list change and processed request in one write; business errors and replays write nothing; success only after the write
+  - `data/sample-favorites.json` (fictional) and `npm run seed`, which only fills a missing or empty store and uses the same store logic and lock
+
+  Concurrency and crashes are tested with separate OS processes synchronised by messages (no sleeps): two writers, the same request from two processes, a replay after a restart, different working directories, a lock held beyond the timeout, an actively refreshed lock that is not stolen, and a killed lock holder whose stale lock is taken over. I/O errors are simulated through an injected file-system adapter. All tests use their own temp directories. The 81 new tests failed before the implementation (all due to "not implemented", 9 of them inside worker processes; no setup errors). 11 deliberately broken variants were tried: 10 made the corresponding tests fail; retrying non-`ELOCKED` lock errors until the timeout went unnoticed (same result, only later; such errors cannot be simulated without bypassing the library). 3 regression tests for a lock lost during the write (detected while the temp file is written, or after a failed rename; also with a failing cleanup) trigger a real takeover of the lock directory, failed with the earlier code (it reported success) and pass now.
+
+Partly covered (not yet through MCP tools or the UI):
 
 - `resolve_items` criteria AC-R1–R5 and AC-R7 are tested on the core functions; the MCP tool does not exist yet. AC-R6 ("store unchanged") is only shown for the inputs of the pure function.
-- `add_to_shopping_list` criteria AC-A1–A13 are tested on the core functions. Not yet covered: the MCP tool, that nothing is *written* on errors, and persistence of processed requests (atomic write, replay after a restart). AC-A14, AC-A15 and the storage criteria (§6.4) belong to the storage package.
+- `add_to_shopping_list` criteria AC-A1–A15 are tested on the core functions and, for the storage parts (nothing written on errors, replay after a restart, AC-A14, AC-A15), on the JSON store. The MCP tool does not exist yet.
+- `get_shopping_list` criteria AC-L3 and AC-L4 are tested on `read()` only; filtering and ordering of open entries (AC-L1, AC-L2) belong to the MCP tool.
+- The UI does not use the store yet; whether the location-based path lookup works when Next.js bundles the code (A8) is open.
 
 Known `npm audit` findings (accepted for now):
 
 - 5 findings rated *high*, all caused by one advisory: ReDoS in `picomatch` ([GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf)), pulled in via `vitest → vite → tinyglobby / fdir`. Affects dev tooling only; the glob patterns come from this project's own config.
 - `npm audit fix` would downgrade Vitest to 3.1.4 (semver-major, older line), so it was not applied. Re-check when Vitest or picomatch publish a fix.
+- Unchanged after adding `proper-lockfile` and `tsx`. Note: `proper-lockfile` 4.1.2 has had no release since 2022; npm also reports that the `postinstall` script of `esbuild` (used by `tsx`) is not approved – `tsx` works without it.
 
 Open:
 
 - [ ] Vertical slice: resolve favourite → add to list → show list → tests pass
 - [ ] MCP tools implemented (`get_favorites`, `resolve_items`, `get_shopping_list`, `add_to_shopping_list`, `save_favorite`)
-- [ ] Shared local storage for MCP server and UI
-- [ ] Next.js UI: favourites, shopping list, mark as bought / remove
-- [ ] Storage integration tests (SPEC §6.4)
+- [ ] MCP server logs the absolute store path on start-up (SPEC §4.6)
+- [ ] Next.js UI: favourites, shopping list, mark as bought / remove – using the shared store (A8)
 - [ ] Playwright E2E tests for the UI beyond the smoke test
 - [ ] `.mcp.json` with this server and dm's MCP server
 - [ ] Manual end-to-end run with dm's MCP server documented
@@ -106,7 +118,7 @@ Marking items as bought or removing them happens in the UI in v1.
 
 ## Storage
 
-The MCP server and the UI share one local JSON file behind a small storage interface. Writes are serialized and atomic (write to a temp file, then rename), so concurrent changes from UI and MCP server cannot overwrite each other. Another adapter (e.g. an external list service) can be added later without changing the core logic.
+The MCP server and the UI are to share one local JSON file (`data/store.json`, git-ignored; override with `EINKAUFSHELFER_DATA_FILE`) behind a small storage interface (`read()`, `update(fn)`). Each update reads, changes and writes under an exclusive cross-process lock (`proper-lockfile`, lock directory `<store>.lock`); the new content goes to a temp file in the same directory and replaces the store file by rename, so concurrent changes cannot overwrite each other and a failed write leaves the previous file intact. A lock left behind by a crashed process is taken over after 4 s; an active lock never is (SPEC A9 lists the limits). Another adapter (e.g. an external list service) can be added later without changing the core logic. So far only tests and `npm run seed` use the storage.
 
 ## Tech stack
 
@@ -120,12 +132,14 @@ Next.js and Playwright are set up ahead of phase 3 (SPEC §2) so the scaffold is
 src/
   core/                  # pure functions: validation, normalisation, identity, matching,
                          #   merging, payload hash, replay decision
-  store/                 # (planned) storage interface + local JSON implementation
+  store/                 # storage interface, store path, JSON file store with lock, seed
   mcp/                   # (planned) MCP server exposing the tools (stdio)
 app/                     # Next.js UI – currently a placeholder start page
-data/                    # (planned) fictional sample favourites; local store is git-ignored
+data/                    # sample-favorites.json (fictional, committed); store.json is git-ignored
+scripts/                 # seed.ts (`npm run seed`)
 tests/                   # Vitest tests, *.test.ts
   core/                  #   unit tests for src/core
+  store/                 #   storage tests incl. separate worker processes (worker.ts)
   fixtures/              #   fixed, fictional sample data
 e2e/                     # Playwright tests, *.spec.ts – smoke test
 SPEC.md                  # requirements and acceptance criteria
@@ -143,6 +157,7 @@ Requirements: Node.js 22.12+, 24 or 26+ (developed with 26.13.1) and npm.
 npm install
 npx playwright install chromium   # browser for the E2E tests
 npm run dev                       # placeholder UI on http://localhost:3000
+npm run seed                      # optional: fictional sample favourites into an empty store
 ```
 
 The MCP server does not exist yet; `npm run mcp` will be added with it.
@@ -177,8 +192,8 @@ Automated tests use fixed, fictional sample data and never call dm's live server
 | "Toothpaste" with two matching favourites | `ambiguous` with both candidates | core unit test (AC-R3) |
 | Unknown product | `unknown` | core unit test (AC-R5) |
 | Item already on the list, new request | Quantity merged | core unit test (AC-A2) |
-| Same request retried (same `requestId`) | List unchanged | core unit test (AC-A8); replay after a restart open (storage) |
-| Storage unavailable / write fails | Clear error, no success message | planned |
+| Same request retried (same `requestId`) | List unchanged | core unit test (AC-A8); replay in a new process (AC-ST2) |
+| Storage unavailable / write fails | Clear error, no success message | storage tests (AC-A14, AC-ST6, AC-ST7); not yet through the MCP tool |
 | UI: add and display | Items appear with correct quantities | planned |
 | UI: mark as bought | Item disappears from the open list | planned |
 

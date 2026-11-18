@@ -14,15 +14,25 @@ import type {
   ResolveItemsInput,
 } from "./types";
 
+/** Shared limits and patterns; also used to validate the stored data. */
+export const TEXT_MAX = {
+  name: 200,
+  category: 100,
+  alias: 100,
+  term: 200,
+} as const;
+export const MAX_ALIASES = 20;
+export const DM_ARTICLE_NUMBER_PATTERN = /^\d{1,13}$/;
+export const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+export const quantity = z.int().min(1).max(99);
+
 /** Trimmed text; the length limit applies to the trimmed value (SPEC §4.1). */
 const text = (max: number) => z.string().trim().min(1).max(max);
-
-const quantity = z.int().min(1).max(99);
 
 const dmArticleNumber = z
   .string()
   .trim()
-  .regex(/^\d{1,13}$/, "must consist of 1–13 digits");
+  .regex(DM_ARTICLE_NUMBER_PATTERN, "must consist of 1–13 digits");
 
 const dmUrl = z.string().transform((raw, ctx) => {
   const url = normalizeDmUrl(raw);
@@ -38,8 +48,8 @@ const dmUrl = z.string().transform((raw, ctx) => {
 
 const productRefSchema = z
   .strictObject({
-    name: text(200),
-    category: text(100).optional(),
+    name: text(TEXT_MAX.name),
+    category: text(TEXT_MAX.category).optional(),
     dmArticleNumber: dmArticleNumber.optional(),
     dmUrl: dmUrl.optional(),
   })
@@ -49,7 +59,12 @@ const productRefSchema = z
 
 const resolveItemsSchema = z.strictObject({
   items: z
-    .array(z.strictObject({ term: text(200), quantity: quantity.default(1) }))
+    .array(
+      z.strictObject({
+        term: text(TEXT_MAX.term),
+        quantity: quantity.default(1),
+      }),
+    )
     .min(1)
     .max(50),
 });
@@ -72,10 +87,7 @@ const addItemSchema = z
 const addToShoppingListSchema = z.strictObject({
   requestId: z
     .string()
-    .regex(
-      /^[A-Za-z0-9_-]{1,128}$/,
-      "must be 1–128 characters of [A-Za-z0-9_-]",
-    ),
+    .regex(REQUEST_ID_PATTERN, "must be 1–128 characters of [A-Za-z0-9_-]"),
   items: z.array(addItemSchema).min(1).max(50),
 });
 

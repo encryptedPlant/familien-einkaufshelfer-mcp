@@ -1,0 +1,53 @@
+[
+  {
+    "id": "5d2f8e10-7a3b-4c6d-9e1f-2a3b4c5d6e01",
+    "name": "Feuchttücher sensitiv",
+    "category": "Feuchttücher",
+    "aliases": ["die üblichen Feuchttücher"],
+    "dmArticleNumber": "900001",
+    "dmUrl": "https://www.dm.de/beispiel-feuchttuecher-sensitiv-p900001.html",
+    "createdAt": "2026-01-01T08:00:00.000Z"
+  },
+  {
+    "id": "5d2f8e10-7a3b-4c6d-9e1f-2a3b4c5d6e02",
+    "name": "Zahnpasta Minze",
+    "category": "Zahnpflege",
+    "aliases": ["die übliche Zahnpasta"],
+    "dmArticleNumber": "900002",
+    "dmUrl": "https://www.dm.de/beispiel-zahnpasta-minze-p900002.html",
+    "createdAt": "2026-01-01T08:00:00.000Z"
+  },
+  {
+    "id": "5d2f8e10-7a3b-4c6d-9e1f-2a3b4c5d6e03",
+    "name": "Zahnpasta Kräuter",
+    "category": "Zahnpflege",
+    "aliases": [],
+    "dmArticleNumber": "900003",
+    "createdAt": "2026-01-01T08:00:00.000Z"
+  },
+  {
+    "id": "5d2f8e10-7a3b-4c6d-9e1f-2a3b4c5d6e04",
+    "name": "Spülmittel Zitrone",
+    "category": "Haushalt",
+    "aliases": ["Spüli"],
+    "dmUrl": "https://www.dm.de/beispiel-spuelmittel-zitrone-p900004.html",
+    "createdAt": "2026-01-01T08:00:00.000Z"
+  },
+  {
+    "id": "5d2f8e10-7a3b-4c6d-9e1f-2a3b4c5d6e05",
+    "name": "Duschgel Meeresbrise",
+    "category": "Körperpflege",
+    "aliases": ["das übliche Duschgel"],
+    "dmArticleNumber": "900005",
+    "createdAt": "2026-01-01T08:00:00.000Z"
+  },
+  {
+    "id": "5d2f8e10-7a3b-4c6d-9e1f-2a3b4c5d6e06",
+    "name": "Babyshampoo mild",
+    "category": "Babypflege",
+    "aliases": ["Kindershampoo"],
+    "dmArticleNumber": "900006",
+    "dmUrl": "https://www.dm.de/beispiel-babyshampoo-mild-p900006.html",
+    "createdAt": "2026-01-01T08:00:00.000Z"
+  }
+]
