@@ -7,6 +7,7 @@ MCP server (TypeScript) that turns structured shopping requests from an AI clien
 - `src/core/` pure domain logic, no I/O: validation, normalisation, identity, matching, merging and idempotency (`addToShoppingList` takes the state, time and ID generator from the caller) · `src/store/` storage: `resolveStorePath()`, `Store` (`read`, `update(fn)`), JSON file adapter with cross-process lock, `addToShoppingListInStore`, seed · `src/mcp/` MCP stdio server: `tools.ts` (definitions, handlers), `server.ts` (SDK `Server` wiring), `main.ts` (start-up)
 - `bin/einkaufshelfer-mcp.mjs` server entry point (node + local tsx loader) · `.mcp.json` project MCP config (currently the demo store `data/demo-store.json`) · `scripts/seed.ts` behind `npm run seed`
 - `app/` Next.js App Router UI (currently only a placeholder start page)
+- `docs/manual-check.md` manual Claude Code check; record only observed results
 - `tests/` Vitest tests, `*.test.ts` only (`tests/fixtures/` holds fixed, fictional sample data; `tests/store/worker.ts` runs as a separate process via the tsx loader; `tests/mcp/` drives the real server process through the SDK client) · `e2e/` Playwright specs, `*.spec.ts` only
 - `data/` local store (git-ignored); only fictional `data/sample-*.json` is committed
 - `.claude/settings.json` Stop hook → `.claude/hooks/check.mjs`
