@@ -12,7 +12,7 @@ For new products, the AI client also uses **dm's public MCP server** to search t
 
 ## Status
 
-Project scaffold plus the first part of the core logic (validation, normalisation, product identity, matching) as pure, unit-tested functions. **Nothing is usable yet:** there are no MCP tools, no storage and no shopping UI. Merging, rejection of faulty requests, payload hashing and the replay decision (core part b) come next.
+Project scaffold plus the phase 1 core logic as pure, unit-tested functions: validation, normalisation, product identity, matching (part a) and merging, rejection of faulty requests, payload hash and replay decision (part b). **Nothing is usable yet:** there are no MCP tools, no storage and no shopping UI. The JSON file storage comes next.
 
 Done and verified:
 
@@ -27,11 +27,18 @@ Done and verified:
   - matching with alias → name → category priority; results `resolved`, `ambiguous` or `unknown` (§4.3)
 
   The first 96 tests failed before the implementation (all with "not implemented", no import or configuration errors); the 12 tests added for the dm start-page rule (SPEC §4.2) failed before that rule was implemented. Deliberately broken variants of the code (8 cases, e.g. name before alias, no NFC, no URL normalisation, no conflict detection) each made the corresponding tests fail.
+- [x] Core part (b) in `src/core/` (pure, no I/O), covered by 37 further Vitest unit tests (147 in total):
+  - `addToShoppingList(store, input, { now, newId })`: applies items in input order to the open entries, merges the same product (also within one request), increases quantities, fills missing article number / URL without overwriting, never merges into bought entries (§4.4)
+  - rejects the whole request on `FAVORITE_NOT_FOUND`, `QUANTITY_LIMIT` or `PRODUCT_IDENTITY_CONFLICT`, even after valid items; returns no state and records nothing, so a corrected retry with the same `requestId` is processed normally
+  - canonical JSON (sorted keys, array order kept) and SHA-256 payload hash over the validated items; `favoriteId` is hashed as given (§4.5)
+  - known `requestId` is checked before any favourite is resolved: same payload → stored result with `replayed: true`, different payload or order → `REQUEST_ID_CONFLICT`
+
+  The 37 new tests failed before the implementation (all with "not implemented", no setup errors). Store and input are deep-frozen in every test and compared after the call. 8 deliberately broken variants (e.g. merging into bought entries, hash depending on favourites, limit off by one, ignoring conflicts, order-insensitive hash) each made the corresponding tests fail.
 
 Partly covered (pure functions only, not yet through MCP tools or storage):
 
 - `resolve_items` criteria AC-R1–R5 and AC-R7 are tested on the core functions; the MCP tool does not exist yet. AC-R6 ("store unchanged") is only shown for the inputs of the pure function.
-- `add_to_shopping_list` criteria: only the validation (AC-A12) and the identity / normalisation parts of AC-A3–A6, AC-A8 and AC-A13 are tested; merging, idempotency and storage are open.
+- `add_to_shopping_list` criteria AC-A1–A13 are tested on the core functions. Not yet covered: the MCP tool, that nothing is *written* on errors, and persistence of processed requests (atomic write, replay after a restart). AC-A14, AC-A15 and the storage criteria (§6.4) belong to the storage package.
 
 Known `npm audit` findings (accepted for now):
 
@@ -44,7 +51,6 @@ Open:
 - [ ] MCP tools implemented (`get_favorites`, `resolve_items`, `get_shopping_list`, `add_to_shopping_list`, `save_favorite`)
 - [ ] Shared local storage for MCP server and UI
 - [ ] Next.js UI: favourites, shopping list, mark as bought / remove
-- [ ] Core part (b): merging, rejection of faulty requests as a whole, payload hash, replay decision – with Vitest tests
 - [ ] Storage integration tests (SPEC §6.4)
 - [ ] Playwright E2E tests for the UI beyond the smoke test
 - [ ] `.mcp.json` with this server and dm's MCP server
@@ -112,8 +118,8 @@ Next.js and Playwright are set up ahead of phase 3 (SPEC §2) so the scaffold is
 
 ```
 src/
-  core/                  # pure functions: validation, normalisation, identity, matching
-                         #   (merging and idempotency planned)
+  core/                  # pure functions: validation, normalisation, identity, matching,
+                         #   merging, payload hash, replay decision
   store/                 # (planned) storage interface + local JSON implementation
   mcp/                   # (planned) MCP server exposing the tools (stdio)
 app/                     # Next.js UI – currently a placeholder start page
@@ -170,8 +176,8 @@ Automated tests use fixed, fictional sample data and never call dm's live server
 | "The usual toothpaste" | Resolved favourite | same alias rule as AC-R1, no separate test |
 | "Toothpaste" with two matching favourites | `ambiguous` with both candidates | core unit test (AC-R3) |
 | Unknown product | `unknown` | core unit test (AC-R5) |
-| Item already on the list, new request | Quantity merged | planned (core part b) |
-| Same request retried (same `requestId`) | List unchanged | planned (core part b) |
+| Item already on the list, new request | Quantity merged | core unit test (AC-A2) |
+| Same request retried (same `requestId`) | List unchanged | core unit test (AC-A8); replay after a restart open (storage) |
 | Storage unavailable / write fails | Clear error, no success message | planned |
 | UI: add and display | Items appear with correct quantities | planned |
 | UI: mark as bought | Item disappears from the open list | planned |
