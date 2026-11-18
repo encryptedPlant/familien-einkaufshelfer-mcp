@@ -73,3 +73,35 @@ export type AddToShoppingListInput = {
 export type AddItem =
   | { readonly favoriteId: string; readonly quantity: number }
   | { readonly product: ProductRef; readonly quantity: number };
+
+/** Result of `add_to_shopping_list` (SPEC §6.2). */
+export type AddResult = {
+  readonly requestId: string;
+  readonly replayed: boolean;
+  /** One per input item, in input order; `quantity` is the entry's new total. */
+  readonly entries: readonly AddResultEntry[];
+};
+
+export type AddResultEntry = {
+  readonly entryId: string;
+  readonly name: string;
+  readonly quantity: number;
+  readonly action: "created" | "merged";
+};
+
+export type ProcessedRequest = {
+  readonly requestId: string;
+  /** SHA-256 of the canonical JSON of the validated request items. */
+  readonly payloadHash: string;
+  /** The original successful result. */
+  readonly result: AddResult;
+  readonly processedAt: string;
+};
+
+/** The persisted document (SPEC §3). */
+export type StoreFile = {
+  readonly version: 1;
+  readonly favorites: readonly Favorite[];
+  readonly list: readonly ListEntry[];
+  readonly processedRequests: readonly ProcessedRequest[];
+};

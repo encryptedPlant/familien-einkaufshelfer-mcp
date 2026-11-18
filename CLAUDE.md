@@ -4,7 +4,7 @@ MCP server (TypeScript) that turns structured shopping requests from an AI clien
 
 ## Layout
 
-- `src/core/` pure domain logic, no I/O: validation, normalisation, identity, matching (merging/idempotency planned) · `src/store/` storage interface + JSON file adapter (planned) · `src/mcp/` MCP stdio server (planned)
+- `src/core/` pure domain logic, no I/O: validation, normalisation, identity, matching, merging and idempotency (`addToShoppingList` takes the state, time and ID generator from the caller) · `src/store/` storage interface + JSON file adapter (planned) · `src/mcp/` MCP stdio server (planned)
 - `app/` Next.js App Router UI (currently only a placeholder start page)
 - `tests/` Vitest tests, `*.test.ts` only (`tests/fixtures/` holds fixed, fictional sample data) · `e2e/` Playwright specs, `*.spec.ts` only
 - `data/` local store (git-ignored); only fictional `data/sample-*.json` is committed
