@@ -10,6 +10,7 @@ import { normalize, normalizeDmUrl } from "./normalize";
 import type { StoreFile } from "./types";
 import {
   DM_ARTICLE_NUMBER_PATTERN,
+  DM_URL_MAX,
   MAX_ALIASES,
   quantity,
   REQUEST_ID_PATTERN,
@@ -33,6 +34,7 @@ const timestamp = z.iso.datetime(); // UTC ("Z") only
 const dmArticleNumber = z.string().regex(DM_ARTICLE_NUMBER_PATTERN);
 const dmUrl = z
   .string()
+  .max(DM_URL_MAX)
   .refine(
     (url) => normalizeDmUrl(url) === url,
     "must be a normalised dm product URL",

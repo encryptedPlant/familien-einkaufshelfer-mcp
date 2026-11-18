@@ -61,6 +61,11 @@ describe("validateStoreFile (SPEC §3, §4.6)", () => {
     ["a non-UUID favourite id", (s: any) => (s.favorites[0].id = "fav-1")],
     ["a non-normalised dm URL", (s: any) => (s.favorites[0].dmUrl += "?x=1")],
     [
+      "a dm URL longer than 2048 characters",
+      (s: any) =>
+        (s.favorites[0].dmUrl = "https://www.dm.de/p" + "a".repeat(2030)),
+    ],
+    [
       "the dm start page as URL",
       (s: any) => (s.favorites[0].dmUrl = "https://www.dm.de"),
     ],

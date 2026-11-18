@@ -35,6 +35,19 @@ const store = (): StoreFile =>
   });
 
 describe("validateSaveFavoriteInput (SPEC §6.6)", () => {
+  test("rejects a dm URL longer than 2048 characters", () => {
+    const dmUrl = "https://www.dm.de/p" + "a".repeat(2030);
+    expect(dmUrl).toHaveLength(2049);
+    expectError(
+      validateSaveFavoriteInput({
+        name: "Handcreme Mandel",
+        category: "Körperpflege",
+        dmUrl,
+      }),
+      "VALIDATION_ERROR",
+    );
+  });
+
   test("trims text, defaults aliases to [] and normalises the dm URL", () => {
     expect(
       validateSaveFavoriteInput({

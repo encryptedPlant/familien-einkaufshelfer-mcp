@@ -23,6 +23,10 @@ export const TEXT_MAX = {
   term: 200,
 } as const;
 export const MAX_ALIASES = 20;
+/** Upper bound for a dm URL, before and after normalisation. */
+export const DM_URL_MAX = 2048;
+/** Upper bound for a given favoriteId; stored ids are UUIDs (36 chars). */
+export const FAVORITE_ID_MAX = 128;
 export const DM_ARTICLE_NUMBER_PATTERN = /^\d{1,13}$/;
 export const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 export const quantity = z.int().min(1).max(99);
@@ -35,17 +39,20 @@ const dmArticleNumber = z
   .trim()
   .regex(DM_ARTICLE_NUMBER_PATTERN, "must consist of 1–13 digits");
 
-const dmUrl = z.string().transform((raw, ctx) => {
-  const url = normalizeDmUrl(raw);
-  if (url === undefined) {
-    ctx.addIssue({
-      code: "custom",
-      message: "must be a dm product URL on www.dm.de or dm.de",
-    });
-    return z.NEVER;
-  }
-  return url;
-});
+const dmUrl = z
+  .string()
+  .max(DM_URL_MAX)
+  .transform((raw, ctx) => {
+    const url = normalizeDmUrl(raw);
+    if (url === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "must be a dm product URL on www.dm.de or dm.de",
+      });
+      return z.NEVER;
+    }
+    return url;
+  });
 
 // The descriptions below are published as the MCP input schemas.
 
@@ -89,6 +96,7 @@ const addItemSchema = z
     favoriteId: z
       .string()
       .min(1)
+      .max(FAVORITE_ID_MAX)
       .optional()
       .describe("id of a favourite that resolve_items returned as resolved"),
     product: productRefSchema.optional(),

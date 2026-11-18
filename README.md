@@ -63,6 +63,14 @@ Done and verified:
 
   The new tests failed before the implementation (missing behaviour: "not implemented", unknown tools, missing tool-list entries, missing dm entry; no setup errors). 8 deliberately broken variants (e.g. no alias check against existing favourites or within the input, no normalisation, alias check outside the lock, `save_favorite` marked idempotent) each made the corresponding tests fail.
 
+- [x] Security hardening after a white-box review on 2026-11-18, covered by 25 further tests (319 Vitest tests in total):
+  - tool dispatch only accepts the server's own tool names; names such as `constructor` or `toString` used to reach `Object.prototype` methods (`constructor` echoed the client's arguments as a successful result) and are now rejected as unknown tools
+  - length limits: `dmUrl` at most 2048 characters (input and stored data), `favoriteId` at most 128 characters
+  - storage errors returned to the client contain no file system paths and no OS or JSON-parser text (they may contain the user name or store content), only the action and the error code (`details.cause`); the full detail is logged to stderr
+  - an invalid store (when reading, and when a new state is refused before writing) returns a generic `STORAGE_CORRUPT` message without `details`: schema messages can quote store content such as aliases or values; the full schema errors are logged to stderr only. Regression tests put a confidential marker into invalid store content and check that it appears neither in `message` nor in `details` and that the file stays unchanged
+
+  The dispatch flaw was reproduced with a script before the fix. The new tests were written together with the fixes and were not run against the old code.
+
 Covered through the MCP tools, automated (the manual Claude Code runs additionally covered resolve, add, technical retry, new request, an ambiguous term and persistence across sessions in phase 1, and dm search, saving a favourite, a duplicate alias, resolving and adding it, and persistence across sessions in phase 2):
 
 - `resolve_items`: AC-R1, AC-R3, AC-R5, AC-R6, AC-R7 via MCP; AC-R2 and AC-R4 on the core functions.
@@ -86,6 +94,10 @@ Open:
 - [ ] Private local store (local MCP scope, not in `.mcp.json`) with three personal favourites – not set up yet
 - [ ] Planned: shopping UI (Next.js) – favourites, shopping list, mark as bought / remove, using the shared store (A8), with Playwright E2E tests (phase 3)
 - [ ] ESLint and CI (deliberately postponed)
+- [ ] Open findings from the security review (not fixed):
+  - product texts from external sources (e.g. dm's MCP output) are untrusted data and a possible source of prompt injection. Once saved as a name, category or alias, such text is returned to the client on every read. The server stores these fields as given (trimmed); it does not restrict line breaks, control or invisible Unicode characters. That alone is not a demonstrated exploitable vulnerability, but it allows look-alike aliases and hidden text. Removing such characters would reduce this, but would not prevent prompt injection completely: the client has to treat stored and external product texts as data, and saving still needs the user's explicit confirmation
+  - phase 3: `next dev` listens on `0.0.0.0` by default; the UI has no authentication, so it must be bound to `127.0.0.1` and check the origin of changing requests
+  - the store file is written with default permissions; on Linux/macOS it should be `0600`
 
 ## How it works
 
@@ -129,7 +141,7 @@ Open:
 
 dm's public MCP server (product search, product details, store availability, store search) is a separate server in `.mcp.json`. Claude combines both as the client; this server never calls dm. Neither server offers a cart or ordering. dm's documentation does not specify which product identifiers it returns; a dm article number, a GTIN/EAN and the number in a dm product URL are not treated as the same thing. Observed in the phase 2 live run: dm returned the DAN (`dan`), the GTIN (`gtin`) and a dm app link with a tracking parameter, not a plain product page URL. Only the DAN is stored as `dmArticleNumber`; the GTIN and the app link are left out.
 
-Errors are tool results with `isError: true` and a JSON body `{ "code", "message", "details"? }` (SPEC §4.7). Unexpected internal exceptions return `INTERNAL_ERROR`: no success is claimed and details go only to stderr, but it is not guaranteed that nothing was changed. The message is tool-specific: only `add_to_shopping_list` suggests retrying with the same requestId and items; `save_favorite` says the outcome is unclear and asks to check `get_favorites` instead of saving again; the read-only tools give no retry hint. The tool descriptions tell the client to ask back on `ambiguous`/`unknown` and explain the `requestId` rules; the server cannot enforce how the client behaves.
+Errors are tool results with `isError: true` and a JSON body `{ "code", "message", "details"? }` (SPEC §4.7). Unexpected internal exceptions return `INTERNAL_ERROR`: no success is claimed and details go only to stderr, but it is not guaranteed that nothing was changed. The message is tool-specific: only `add_to_shopping_list` suggests retrying with the same requestId and items; `save_favorite` says the outcome is unclear and asks to check `get_favorites` instead of saving again; the read-only tools give no retry hint. Storage errors name no file system paths, no OS error text and no store content (an invalid store gives a generic `STORAGE_CORRUPT` message); the details are logged to stderr. The tool descriptions tell the client to ask back on `ambiguous`/`unknown` and explain the `requestId` rules; the server cannot enforce how the client behaves.
 
 **Duplicate rule**
 
