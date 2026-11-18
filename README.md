@@ -19,6 +19,7 @@ Done and verified:
 - [x] Tooling installed and configured: TypeScript (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), Zod, Prettier, Vitest, MCP TypeScript SDK. `npm run typecheck` and `npm run format:check` pass.
 - [x] Next.js placeholder start page. The Playwright smoke test (`npm run test:e2e`, Chromium) passes.
 - [x] Stop hook script checked by calling it directly: exit 0 when green; exit 2 with a readable report for a failing Vitest test, a type error and missing tools; the loop guard releases after 3 blocked stops and reports that explicitly.
+- [x] Stop hook verified in a real Claude Code turn: a deliberately failing Vitest test blocked the end of the turn and the failure report reached Claude; after removing the test the next stop was not blocked (see *Agentic workflow*).
 
 Current state, not a real pass:
 
@@ -31,7 +32,6 @@ Known `npm audit` findings (accepted for now):
 
 Open:
 
-- [ ] Stop hook verified in a real Claude Code turn (needs a new session, see *Agentic workflow*)
 - [ ] Vertical slice: resolve favourite → add to list → show list → tests pass
 - [ ] MCP tools implemented (`get_favorites`, `resolve_items`, `get_shopping_list`, `add_to_shopping_list`, `save_favorite`)
 - [ ] Shared local storage for MCP server and UI
@@ -176,13 +176,13 @@ Documented example run in Claude Code with both servers connected: request → d
 - **`CLAUDE.md`:** commands, conventions and gotchas the agent cannot infer from the code.
 - **Stop hook** (`.claude/hooks/check.mjs`, Node, no shell): runs typecheck and Vitest when the agent tries to finish, independent of the working directory. On failure, or if a check cannot be started, it exits with code 2 and a readable report, so Claude Code sends the agent back to fix the problem. A loop guard lets the turn end after 3 blocked stops in one turn and then shows an explicit "LOOP GUARD … NOT green" message. If no Vitest tests exist, it says so instead of reporting a plain pass.
   - Verified: direct calls of the script (green, failing test, type error, missing tools, loop guard).
-  - **Not yet verified:** the behaviour inside a real Claude Code turn. The hook was added during a running session, which does not load new project settings; this needs a new session (see the steps below).
+  - Verified in a real Claude Code turn (Claude desktop app, Windows): with a temporary failing test in `tests/hook-check.test.ts`, the automatically triggered hook blocked the end of the turn and returned the Vitest failure report to Claude ("blocked stop 1 of 3"). After the test was removed, the next stop was not blocked.
+  - Not verified in a real turn: the loop guard (only checked by calling the script directly).
 
-  Manual check in a new Claude Code session:
-  1. Restart the Claude desktop app (or start `claude` anew) so it loads `.claude/settings.json` and finds `node` on the PATH.
-  2. Create `tests/hook-check.test.ts` containing a failing assertion, e.g. `expect(1 + 1).toBe(3)`.
-  3. Ask Claude for something trivial. When it tries to finish, the turn must not end; Claude must receive the Vitest failure report.
-  4. Delete the test file, let the turn finish, and confirm the hook passes again.
+  To re-check the integration:
+  1. Create `tests/hook-check.test.ts` containing a failing assertion, e.g. `expect(1 + 1).toBe(3)`.
+  2. Ask Claude for something trivial. When it tries to finish, the turn must not end; Claude must receive the Vitest failure report.
+  3. Delete the test file, let the turn finish, and confirm the hook passes again.
 - **Human review:** changes are reviewed functionally and in code before committing.
 
 ## Privacy & data
