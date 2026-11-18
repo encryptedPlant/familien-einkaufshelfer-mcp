@@ -1,5 +1,6 @@
-// MCP tool definitions and handlers (SPEC §6.1–6.3). Uses the core logic,
-// the input validation and the Store interface; no business rules here.
+// MCP tool definitions and handlers (SPEC §6.1–6.3, §6.5, §6.6). Uses the
+// core logic, the input validation and the Store interface; no business
+// rules here.
 
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -9,20 +10,27 @@ import { resolveItems } from "../core/matching";
 import { openEntries } from "../core/shopping-list";
 import {
   addToShoppingListInputSchema,
+  getFavoritesInputSchema,
   getShoppingListInputSchema,
   resolveItemsInputSchema,
+  saveFavoriteInputSchema,
   validateAddToShoppingListInput,
+  validateGetFavoritesInput,
   validateGetShoppingListInput,
   validateResolveItemsInput,
+  validateSaveFavoriteInput,
 } from "../core/validation";
-import { addToShoppingListInStore } from "../store/operations";
+import {
+  addToShoppingListInStore,
+  saveFavoriteInStore,
+} from "../store/operations";
 import type { Store } from "../store/store";
 
 export type ToolDeps = {
   readonly store: Store;
-  /** ISO 8601 UTC timestamp for new entries. */
+  /** ISO 8601 UTC timestamp for new entries and favourites. */
   readonly now: () => string;
-  /** New UUID for each created list entry. */
+  /** New UUID for each created list entry or favourite. */
   readonly newId: () => string;
   /** Diagnostics (stderr). */
   readonly log: (message: string) => void;
@@ -75,6 +83,33 @@ export const TOOLS: readonly Tool[] = [
     inputSchema: inputSchema(getShoppingListInputSchema),
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
+  {
+    name: "get_favorites",
+    title: "Get favourites",
+    description:
+      "Returns all saved favourites with id, name, category, aliases and the stored dm identifiers (dmArticleNumber, dmUrl), in the order they were saved. Read-only; takes no arguments.",
+    inputSchema: inputSchema(getFavoritesInputSchema),
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  {
+    name: "save_favorite",
+    title: "Save favourite",
+    description: [
+      "Saves a new favourite and returns it with a server-generated id.",
+      "Only call it after the user has explicitly asked to save a product and has confirmed the concrete product (brand, variant, pack size).",
+      "Store only identifiers that are confirmed for that product: dmArticleNumber is the dm article number (DAN), not a GTIN/EAN and not a number taken from a product URL unless it is confirmed to be the DAN; dmUrl is the dm product page (not the start page). Leave out what is not confirmed; never invent identifiers.",
+      "Aliases must be unique across all favourites after normalisation (case, whitespace); a collision, also within the given aliases, fails with DUPLICATE_ALIAS and nothing is saved. Names may repeat.",
+      "Not idempotent: every successful call creates another favourite, even with identical data. If the outcome of a call is unclear (e.g. timeout or lost connection), call get_favorites first to check whether it was saved; do not repeat the call blindly.",
+      "Errors come as isError with a JSON body { code, message, details }.",
+    ].join(" "),
+    inputSchema: inputSchema(saveFavoriteInputSchema),
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
 ];
 
 /**
@@ -103,9 +138,25 @@ export async function callTool(
     );
     return errorResult({
       code: "INTERNAL_ERROR",
-      message:
-        "Unexpected server error; success is not confirmed. Check the current state before retrying (the same requestId is safe to retry). Details are in the server log.",
+      message: internalErrorMessage(name),
     });
+  }
+}
+
+/**
+ * Tool-specific guidance for INTERNAL_ERROR (SPEC §4.7): never claims
+ * success; only add_to_shopping_list has a safe retry (same requestId,
+ * same items); a save_favorite retry could create a duplicate favourite.
+ */
+function internalErrorMessage(name: string): string {
+  const base = "Unexpected server error; details are in the server log.";
+  switch (name) {
+    case "add_to_shopping_list":
+      return `${base} Success is not confirmed. Check get_shopping_list; if you retry, use the same requestId and the same items.`;
+    case "save_favorite":
+      return `${base} It is unclear whether the favourite was saved. Check get_favorites first; do not call save_favorite again blindly.`;
+    default:
+      return `${base} No result is available.`;
   }
 }
 
@@ -136,6 +187,26 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
     const state = await store.read();
     if (!state.ok) return state;
     return { ok: true, value: { entries: openEntries(state.value.list) } };
+  },
+
+  async get_favorites(args, { store }) {
+    const input = validateGetFavoritesInput(args);
+    if (!input.ok) return input;
+    const state = await store.read();
+    if (!state.ok) return state;
+    return { ok: true, value: { favorites: state.value.favorites } };
+  },
+
+  async save_favorite(args, { store, now, newId }) {
+    const input = validateSaveFavoriteInput(args);
+    if (!input.ok) return input;
+    // Alias check and write happen in one locked store update.
+    const saved = await saveFavoriteInStore(store, input.value, {
+      now: now(),
+      newId,
+    });
+    if (!saved.ok) return saved;
+    return { ok: true, value: { favorite: saved.value } };
   },
 };
 

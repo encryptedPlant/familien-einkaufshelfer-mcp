@@ -23,29 +23,67 @@ function deps(store: Partial<Store>, logs: string[]): ToolDeps {
   };
 }
 
+const throwing = async (): Promise<never> => {
+  throw new Error("disk exploded");
+};
+
+function message(result: { structuredContent?: unknown }): string {
+  return String((result.structuredContent as { message?: string }).message);
+}
+
 describe("callTool error handling", () => {
-  test("an unexpected exception becomes INTERNAL_ERROR (no success) and is logged, not printed", async () => {
+  test("add_to_shopping_list: an unexpected exception becomes INTERNAL_ERROR and suggests retrying with the same requestId and items", async () => {
     const logs: string[] = [];
     const result = await callTool(
       "add_to_shopping_list",
       { requestId: "req-1", items: [{ favoriteId: "f-1", quantity: 1 }] },
-      deps(
-        {
-          update: async () => {
-            throw new Error("disk exploded");
-          },
-        },
-        logs,
-      ),
+      deps({ update: throwing }, logs),
     );
     expect(result.isError).toBe(true);
     expect(result.structuredContent).toMatchObject({ code: "INTERNAL_ERROR" });
+    expect(message(result)).toMatch(/same requestId/);
+    expect(message(result)).toMatch(/same items/);
+    expect(message(result)).not.toContain("disk exploded");
     expect(logs.join("\n")).toContain("disk exploded");
   });
 
+  test("save_favorite: an unexpected exception says the outcome is unclear, points to get_favorites and promises no safe retry", async () => {
+    const logs: string[] = [];
+    const result = await callTool(
+      "save_favorite",
+      { name: "Teelichter", category: "Haushalt" },
+      deps({ update: throwing }, logs),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({ code: "INTERNAL_ERROR" });
+    expect(message(result)).toMatch(/unclear/i);
+    expect(message(result)).toMatch(/get_favorites/);
+    expect(message(result)).toMatch(/do not .*save_favorite/i);
+    expect(message(result)).not.toMatch(/requestId/);
+    expect(message(result)).not.toMatch(/safe/i);
+    expect(logs.join("\n")).toContain("disk exploded");
+  });
+
+  test.each([
+    ["resolve_items", { items: [{ term: "Spüli" }] }],
+    ["get_shopping_list", {}],
+    ["get_favorites", {}],
+  ])(
+    "%s (read-only): an unexpected exception becomes INTERNAL_ERROR without any requestId or retry hint",
+    async (name, args) => {
+      const result = await callTool(name, args, deps({ read: throwing }, []));
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({
+        code: "INTERNAL_ERROR",
+      });
+      expect(message(result)).not.toMatch(/requestId/);
+      expect(message(result)).not.toMatch(/retry|save/i);
+    },
+  );
+
   test("an unknown tool name is a protocol error (McpError), not a tool result", async () => {
     await expect(
-      callTool("save_favorite", {}, deps({}, [])),
+      callTool("add_to_cart", {}, deps({}, [])),
     ).rejects.toBeInstanceOf(McpError);
   });
 });

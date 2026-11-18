@@ -74,6 +74,15 @@ export type AddItem =
   | { readonly favoriteId: string; readonly quantity: number }
   | { readonly product: ProductRef; readonly quantity: number };
 
+/** Validated `save_favorite` input (SPEC §6.6): trimmed text, normalised dm URL. */
+export type SaveFavoriteInput = {
+  readonly name: string;
+  readonly category: string;
+  readonly aliases: readonly string[];
+  readonly dmArticleNumber?: string;
+  readonly dmUrl?: string;
+};
+
 /** Result of `add_to_shopping_list` (SPEC §6.2). */
 export type AddResult = {
   readonly requestId: string;

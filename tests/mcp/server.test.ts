@@ -58,15 +58,17 @@ async function quantityOf(
 
 describe("protocol (additional protocol tests)", () => {
   test(
-    "[protocol] lists exactly the three tools with input schemas and annotations",
+    "[protocol] lists exactly the five tools with input schemas and annotations",
     async () => {
       const server = await connect({ storePath });
       const { tools } = await server.client.listTools();
       const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
       expect(Object.keys(byName).sort()).toEqual([
         "add_to_shopping_list",
+        "get_favorites",
         "get_shopping_list",
         "resolve_items",
+        "save_favorite",
       ]);
       expect(byName.resolve_items?.annotations).toMatchObject({
         readOnlyHint: true,
@@ -204,7 +206,7 @@ describe("protocol (additional protocol tests)", () => {
           env: { ...entry.env, ...env },
         });
         const { tools } = await server.client.listTools();
-        expect(tools).toHaveLength(3);
+        expect(tools).toHaveLength(5);
         await server.close();
       }
       expect(existsSync(storePath)).toBe(false);
@@ -217,7 +219,7 @@ describe("protocol (additional protocol tests)", () => {
     async () => {
       const server = await connect({ storePath });
       await expect(
-        server.client.callTool({ name: "save_favorite", arguments: {} }),
+        server.client.callTool({ name: "add_to_cart", arguments: {} }),
       ).rejects.toThrow(/unknown tool/i);
     },
     TIMEOUT,
