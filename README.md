@@ -219,7 +219,7 @@ The project's `.mcp.json` starts the server with `node "${CLAUDE_PROJECT_DIR:-.}
 2. Start a **new** Claude Code session in the project folder (a running session does not pick up changes to `.mcp.json`). Claude Code asks whether to use the project servers `einkaufshelfer` and `dm-drogeriemarkt`; approve them. `node` must be on the PATH of Claude Code.
 3. Check the connection: ask Claude which tools of both servers are available (in the desktop app `/mcp` may open the plugin view instead), or run `claude mcp list` / `claude mcp get einkaufshelfer` in a terminal. `einkaufshelfer` should offer five tools. The server writes its store path to stderr.
 
-**Manual checks: phase 1 and phase 2 runs performed on 2026-11-18, all checks passed.** Requests, observed results and deviations are in [docs/manual-check.md](docs/manual-check.md). Reset the demo by deleting `data/demo-store.json` and seeding again. Automated SDK tests do not replace these runs.
+**Manual checks: phase 1 and phase 2 runs performed on 2026-11-18, all checks passed.** Requests, observed results and deviations are in [docs/manual-check.md](docs/manual-check.md). Resetting the demo (deleting `data/demo-store.json` and seeding again): first make a separate backup copy (e.g. `data/demo-store.backup-<date>.json`, git-ignored), and reset only after the user's explicit approval – the demo store may contain data from earlier runs. Automated SDK tests do not replace these runs.
 
 ## Tests
 
